@@ -28,7 +28,7 @@ from colossalai.checkpoint_io.utils import (
     sharded_optimizer_loading_epilogue,
 )
 from colossalai.interface import OptimizerWrapper
-from colossalai.moe.manager import MOE_MANAGER
+# from colossalai.moe.manager import MOE_MANAGER
 from colossalai.tensor.moe_tensor.api import (
     get_dp_group,
     get_dp_rank,
@@ -47,6 +47,7 @@ class MoECheckpointIO(HybridParallelCheckpointIO):
         pp_group: ProcessGroup,
         tp_group: ProcessGroup,
         zero_stage: int,
+        is_ep: bool,
     ) -> None:
         assert zero_stage in [
             0,
@@ -54,7 +55,8 @@ class MoECheckpointIO(HybridParallelCheckpointIO):
             2,
         ], f"zero_stage should be 0 or 1 or 2, got {zero_stage}"
         super().__init__(dp_group, pp_group, tp_group, zero_stage)
-        self.parallel = MOE_MANAGER.parallel
+        # self.parallel = MOE_MANAGER.parallel
+        self.is_ep = is_ep
 
     def pre_load_model(self, model: nn.Module, state_dict: dict) -> dict:
         """
@@ -470,7 +472,8 @@ class MoECheckpointIO(HybridParallelCheckpointIO):
             new_pg["params"] = old_pg["params"]  # Only keep the parameters kept by current pipeline stage.
             updated_groups.append(new_pg)
         # ep extra group
-        if MOE_MANAGER.parallel == "EP":
+        if self.is_ep:
+        # if MOE_MANAGER.parallel == "EP":
             new_pg = copy.deepcopy(saved_pg)
             new_pg["params"] = optimizer.optim.param_groups[-1][
                 "params"

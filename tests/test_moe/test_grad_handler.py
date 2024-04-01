@@ -24,7 +24,8 @@ def run_test(rank, world_size, port):
         backend="nccl",
     )
 
-    MOE_MANAGER.setup(parallel="EP")  # MOE initialization
+    # MOE_MANAGER.setup(parallel="EP")  # MOE initialization
+    MOE_MANAGER.setup()
     num_experts_list = [1, 2, 4]
     layer_list = []
     for num_experts in num_experts_list:
@@ -34,6 +35,7 @@ def run_test(rank, world_size, port):
             num_experts=num_experts,
             router_top_k=1,
             router_noisy_policy="Jitter",
+            expert_parallel="EP",
         )
         layer_list.append(moe_layer)
 
@@ -55,7 +57,7 @@ def run_test(rank, world_size, port):
     data = torch.randn(BATCH_SIZE, DIM, device=get_accelerator().get_current_device())
     grad = torch.randn_like(data)
 
-    MOE_MANAGER.reset_loss()
+    # MOE_MANAGER.reset_loss()
     for layer in layer_list:
         data = layer(data)
     data.backward(grad)

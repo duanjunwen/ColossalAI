@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from colossalai.moe._operation import AllGather, AllToAll, HierarchicalAllToAll, MoeCombine, MoeDispatch, ReduceScatter
 from colossalai.moe.experts import MLPExperts
 from colossalai.moe.load_balance import LoadBalancer
-from colossalai.moe.manager import MOE_MANAGER
+# from colossalai.moe.manager import MOE_MANAGER
 from colossalai.moe.routers import MoeRouter, get_router_cls
 from colossalai.moe.utils import create_ep_hierarchical_group, get_noise_generator
 from colossalai.tensor.moe_tensor.api import get_dp_group, get_ep_group, get_ep_group_ranks, get_ep_size
@@ -68,6 +68,7 @@ class SparseMLP(nn.Module):
         enable_comm_overlap: bool = False,
         enable_hierarchical_comm: bool = False,
         return_gate_logits: bool = False,
+        expert_parallel: str = None, 
     ):
         super().__init__()
         self.hidden_size = hidden_size
@@ -77,7 +78,8 @@ class SparseMLP(nn.Module):
         self.return_gate_logits = return_gate_logits
         self.enable_kernel = enable_kernel
         self.enable_comm_overlap = enable_comm_overlap
-        self.expert_parallel = MOE_MANAGER.get_parallel()
+        # self.expert_parallel = MOE_MANAGER.get_parallel()
+        self.expert_parallel = expert_parallel # str type, expert_parallel should be EP, TP or None. Defaults to None.
         self.router_loss = router_loss
         self.router_norm = router_norm
 

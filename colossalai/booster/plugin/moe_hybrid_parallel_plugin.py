@@ -22,7 +22,8 @@ from colossalai.booster.plugin.hybrid_parallel_plugin import (
 )
 from colossalai.cluster import ProcessGroupMesh
 from colossalai.interface import ModelWrapper, OptimizerWrapper
-from colossalai.moe import MOE_MANAGER, MoECheckpointIO
+# from colossalai.moe import MOE_MANAGER, MoECheckpointIO
+from colossalai.moe import MoECheckpointIO
 from colossalai.pipeline.schedule import OneForwardOneBackwardSchedule
 from colossalai.pipeline.stage_manager import PipelineStageManager
 from colossalai.shardformer import ShardConfig
@@ -197,19 +198,19 @@ class MoeHybridParallelPlugin(HybridParallelPlugin):
             dist.get_world_size() % (tp_size * pp_size * ep_size) == 0
         ), f"world size {dist.get_world_size()} is not divisible by tp_size {tp_size} * pp_size {pp_size} * ep_size {ep_size}"
         self.real_dp_size = dist.get_world_size() // (tp_size * pp_size * ep_size)
-        MOE_MANAGER.setup(
-            parallel="EP",
-            mode="fixed",
-            fixed_dp_size=self.real_dp_size,
-            fixed_ep_size=ep_size,
-            fixed_pp_size=pp_size,
-            use_ep_inside=use_ep_inside,
-        )
+        # MOE_MANAGER.setup(
+        #     parallel="EP",
+        #     mode="fixed",
+        #     fixed_dp_size=self.real_dp_size,
+        #     fixed_ep_size=ep_size,
+        #     fixed_pp_size=pp_size,
+        #     use_ep_inside=use_ep_inside,
+        # )
         self.tp_size = tp_size
         self.pp_size = pp_size
         self.dp_size = dist.get_world_size() // (tp_size * pp_size)
         self.ep_size = ep_size
-        self.moe_info = MOE_MANAGER.get_info(0)[1]
+        # self.moe_info = MOE_MANAGER.get_info(0)[1]
         self.precision = precision
         self.zero_stage = zero_stage
         self.cpu_offload = cpu_offload
@@ -343,7 +344,9 @@ class MoeHybridParallelPlugin(HybridParallelPlugin):
 
     def get_checkpoint_io(self) -> MoECheckpointIO:
         if self.checkpoint_io is None:
-            self.checkpoint_io = MoECheckpointIO(self.dp_group, self.pp_group, self.tp_group, self.zero_stage)
+            is_ep = self.ep_size > 1
+            # self.checkpoint_io = MoECheckpointIO(self.dp_group, self.pp_group, self.tp_group, self.zero_stage)
+            self.checkpoint_io = MoECheckpointIO(self.dp_group, self.pp_group, self.tp_group, self.zero_stage, is_ep)
         else:
             self.checkpoint_io = self.checkpoint_io(self.dp_group, self.pp_group, self.tp_group, self.zero_stage)
         return self.checkpoint_io

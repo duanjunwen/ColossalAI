@@ -131,10 +131,12 @@ def run_test(rank: int, world_size: int, port: int, num_experts: int, batch_size
     colossalai.launch(config=dict(), rank=rank, world_size=world_size, host="localhost", port=port, backend="nccl")
 
     MOE_MANAGER.__init__()
-    MOE_MANAGER.setup(parallel=None)
-    local_model = SparseMLP(num_experts=num_experts, hidden_size=dim, intermediate_size=dim * 2)
+    # MOE_MANAGER.setup(parallel=None)
+    MOE_MANAGER.setup()
+    local_model = SparseMLP(num_experts=num_experts, hidden_size=dim, intermediate_size=dim * 2, expert_parallel=None)
     MOE_MANAGER.__init__()
-    MOE_MANAGER.setup(parallel="EP")
+    # MOE_MANAGER.setup(parallel="EP")
+    MOE_MANAGER.setup()
     enable_hierarchical_comm = config.get("enable_hierarchical_comm", False)
     if enable_hierarchical_comm:
         os.environ["LOCAL_WORLD_SIZE"] = str(world_size)
@@ -143,10 +145,12 @@ def run_test(rank: int, world_size: int, port: int, num_experts: int, batch_size
         hidden_size=dim,
         intermediate_size=dim * 2,
         enable_hierarchical_comm=enable_hierarchical_comm,
+        expert_parallel="EP"
     )
     MOE_MANAGER.__init__()
-    MOE_MANAGER.setup(parallel="TP")
-    tp_model = SparseMLP(num_experts=num_experts, hidden_size=dim, intermediate_size=dim * 2)
+    # MOE_MANAGER.setup(parallel="TP")
+    MOE_MANAGER.setup()
+    tp_model = SparseMLP(num_experts=num_experts, hidden_size=dim, intermediate_size=dim * 2, expert_parallel="TP")
     ep_model = ep_model.to(get_accelerator().get_current_device())
     tp_model = tp_model.to(get_accelerator().get_current_device())
     local_model = local_model.to(get_accelerator().get_current_device())
@@ -171,11 +175,11 @@ def run_test(rank: int, world_size: int, port: int, num_experts: int, batch_size
     shard_data = input_data.detach()[index : index + micro_batch_size]
 
     out_local = local_model(input_data)
-    MOE_MANAGER.reset_loss()
+    # MOE_MANAGER.reset_loss()
     out_tp = tp_model(shard_data)
-    MOE_MANAGER.reset_loss()
+    # MOE_MANAGER.reset_loss()
     out_ep = ep_model(shard_data)
-    MOE_MANAGER.reset_loss()
+    # MOE_MANAGER.reset_loss()
 
     assert torch.allclose(
         out_tp, out_ep, atol=1e-6
