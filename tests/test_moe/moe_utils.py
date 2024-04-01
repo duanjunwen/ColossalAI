@@ -27,7 +27,6 @@ class MoeModel(nn.Module):
                 self.moe = SparseMLP(
                     num_experts=8, hidden_size=16, intermediate_size=32, enable_load_balance=enable_load_balance
                 )
-                self.moe.setup_distributed(None)
                 self.proj = nn.Linear(16, 4)
 
             def forward(self, x):
