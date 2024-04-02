@@ -8,15 +8,34 @@ from colossalai.moe import MOE_MANAGER
 from colossalai.moe._operation import MoeInGradScaler, MoeOutGradScaler, all_to_all_uneven
 from colossalai.shardformer.shard.utils import set_tensors_to_none
 from colossalai.tensor.moe_tensor.api import set_moe_tensor_info
+from colossalai.booster.plugin.moe_hybrid_parallel_plugin import MoeHybridParallelPlugin
 
 
 class EPMixtralSparseMoeBlock(MixtralSparseMoeBlock):
     def __init__(self, config):
         super().__init__(config)
+        
         self.setup_ep()
+        
+
 
     def setup_ep(self):
-        _, moe_info = MOE_MANAGER.get_info(self.num_experts)
+        # _, moe_info = MOE_MANAGER.get_info(self.num_experts)
+        # print(f"Manager moe_info ep rank {moe_info.ep_rank}")
+        
+        # ==============================
+        # Plugin shouldn't be here.
+        # ==============================
+        # print(f"world size {dist.get_world_size()}")
+        plugin = MoeHybridParallelPlugin(
+            precision="bf16",
+            tp_size=1,
+            pp_size=1,
+            ep_size=dist.get_world_size(),
+        )
+        moe_info = plugin.moe_info
+        # print(f"Plugin moe_info ep rank {moe_info_}")
+ 
         ep_group = moe_info.ep_group
         self.ep_size = dist.get_world_size(ep_group) if ep_group is not None else 1
         self.ep_rank = dist.get_rank(ep_group) if ep_group is not None else 0

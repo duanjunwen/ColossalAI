@@ -54,7 +54,7 @@ def run_dist(rank: int, world_size: int, port: int):
     check_mixtral_moe_layer()
 
 
-@pytest.mark.parametrize("world_size", [2, 4])
+@pytest.mark.parametrize("world_size", [2,4]) # 2, 4
 def test_mixtral_moe_layer(world_size: int):
     spawn(run_dist, world_size)
 
