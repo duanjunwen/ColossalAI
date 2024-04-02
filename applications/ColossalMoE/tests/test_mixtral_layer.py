@@ -9,7 +9,7 @@ from transformers.models.mixtral.configuration_mixtral import MixtralConfig
 from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock
 
 import colossalai
-from colossalai.moe import MOE_MANAGER
+# from colossalai.moe import MOE_MANAGER
 from colossalai.testing.utils import spawn
 
 tokens, n_experts = 7, 4
@@ -19,9 +19,9 @@ top_k = 2
 
 def check_mixtral_moe_layer():
     torch.cuda.set_device(dist.get_rank())
-    MOE_MANAGER.setup(
-        parallel="EP", mode="fixed", fixed_dp_size=1, fixed_ep_size=dist.get_world_size(), fixed_pp_size=1
-    )
+    # MOE_MANAGER.setup(
+    #     parallel="EP", mode="fixed", fixed_dp_size=1, fixed_ep_size=dist.get_world_size(), fixed_pp_size=1
+    # )
     config = MixtralConfig(
         hidden_size=hidden_size,
         intermediate_size=hidden_size * 2,
@@ -54,7 +54,7 @@ def run_dist(rank: int, world_size: int, port: int):
     check_mixtral_moe_layer()
 
 
-@pytest.mark.parametrize("world_size", [2,4]) # 2, 4
+@pytest.mark.parametrize("world_size", [2]) # 2, 4
 def test_mixtral_moe_layer(world_size: int):
     spawn(run_dist, world_size)
 

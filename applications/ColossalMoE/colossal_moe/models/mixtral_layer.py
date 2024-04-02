@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from transformers.models.mixtral.modeling_mixtral import MixtralSparseMoeBlock
 
 from colossalai.lazy import LazyInitContext
-from colossalai.moe import MOE_MANAGER
+# from colossalai.moe import MOE_MANAGER
 from colossalai.moe._operation import MoeInGradScaler, MoeOutGradScaler, all_to_all_uneven
 from colossalai.shardformer.shard.utils import set_tensors_to_none
 from colossalai.tensor.moe_tensor.api import set_moe_tensor_info
@@ -13,8 +13,7 @@ from colossalai.booster.plugin.moe_hybrid_parallel_plugin import MoeHybridParall
 
 class EPMixtralSparseMoeBlock(MixtralSparseMoeBlock):
     def __init__(self, config):
-        super().__init__(config)
-        
+        super().__init__(config)    
         self.setup_ep()
         
 
