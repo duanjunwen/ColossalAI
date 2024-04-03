@@ -47,14 +47,6 @@ class MixtralMoEHybridParallelCheckpointIO(HybridParallelCheckpointIO):
         verbose: bool = True,
     ) -> None:
         super().__init__(dp_group, pp_group, tp_group, zero_stage, verbose)
-        # moe_info = MOE_MANAGER.parallel_info_dict[MOE_MANAGER.ep_size]
-        # plugin = MoeHybridParallelPlugin(
-        #     precision="bf16",
-        #     tp_size=1,
-        #     pp_size=1,
-        #     ep_size=dist.get_world_size(),
-        # )
-        # moe_info = plugin.moe_info
         self.moe_info = None
         self.ep_group = None
         self.ep_size = None
