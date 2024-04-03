@@ -30,6 +30,7 @@ from colossalai.interface import ModelWrapper, OptimizerWrapper
 from colossalai.moe import MOE_MANAGER
 from colossalai.tensor.moe_tensor.api import is_moe_tensor
 from colossalai.booster.plugin.moe_hybrid_parallel_plugin import MoeHybridParallelPlugin
+from colossalai.tensor.moe_tensor.moe_info import MoeParallelInfo
 try:
     from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
 except ImportError:
@@ -47,19 +48,26 @@ class MixtralMoEHybridParallelCheckpointIO(HybridParallelCheckpointIO):
     ) -> None:
         super().__init__(dp_group, pp_group, tp_group, zero_stage, verbose)
         # moe_info = MOE_MANAGER.parallel_info_dict[MOE_MANAGER.ep_size]
-        plugin = MoeHybridParallelPlugin(
-            precision="bf16",
-            tp_size=1,
-            pp_size=1,
-            ep_size=dist.get_world_size(),
-        )
-        moe_info = plugin.moe_info
+        # plugin = MoeHybridParallelPlugin(
+        #     precision="bf16",
+        #     tp_size=1,
+        #     pp_size=1,
+        #     ep_size=dist.get_world_size(),
+        # )
+        # moe_info = plugin.moe_info
+        self.moe_info = None
+        self.ep_group = None
+        self.ep_size = None
+        self.ep_rank = None
+        self.real_dp_rank = None
+    
+    def setup(self, moe_info):
+        self.moe_info = moe_info
+        self.ep_group = self.moe_info.ep_group
+        self.ep_size = self.moe_info.ep_size
+        self.ep_rank = self.moe_info.ep_rank
+        self.real_dp_rank = self.moe_info.dp_rank
         
-        self.ep_group = moe_info.ep_group
-        self.ep_size = moe_info.ep_size
-        self.ep_rank = moe_info.ep_rank
-        self.real_dp_rank = moe_info.dp_rank
-
     @staticmethod
     def _model_sharder(
         model: nn.Module,
