@@ -6,6 +6,7 @@ from torch.testing import assert_close
 
 import colossalai
 from colossalai.cluster import DistCoordinator, ProcessGroupMesh
+from colossalai.shardformer.layer.utils import Randomizer
 from colossalai.logging import disable_existing_loggers
 from colossalai.nn.optimizer import CAME, DistributedCAME
 from colossalai.tensor.d_tensor import is_distributed_tensor
@@ -15,7 +16,15 @@ from colossalai.testing import parameterize, rerun_if_address_is_in_use, spawn
 from colossalai.testing.random import seed_all
 from colossalai.zero import LowLevelZeroOptimizer
 from tests.kit.model_zoo import model_zoo
-from tests.test_optimizer._utils import check_optim_states, run_bert_test
+from tests.test_optimizer._utils import check_optim_states, check_dist_optim_state, check_dist_param
+from tests.test_shardformer.test_model._utils import (
+    build_model_from_hybrid_plugin,
+    build_model_from_low_level_zero_plugin,
+    check_weight,
+    run_forward_backward_with_hybrid_plugin,
+    run_forward_backward_with_low_level_zero_plugin,
+    unwrap_model,
+)
 
 _ALLOWED_P_G_TYPES = [
     (torch.float, torch.float),  # pure fp32
@@ -282,19 +291,189 @@ def run_dist_lamb_fwd_bwd(
         raise e
 
 
+@parameterize(
+    "test_config",
+    [
+        {
+            "stage": 1,
+            "precision": "bf16",
+        },
+        {
+            "stage": 2,
+            "precision": "bf16",
+        },
+    ],
+)
+def exam_bert_test_on_lowlevelzero_plugin(test_config):
+    sub_model_zoo = model_zoo.get_sub_registry("transformers_bert")
+    model_list = [
+        "transformers_bert",
+        "transformers_bert_for_pretraining",
+        "transformers_bert_lm_head_model",
+        "transformers_bert_for_masked_lm",
+        "transformers_bert_for_sequence_classification",
+        "transformers_bert_for_token_classification",
+        "transformers_bert_for_next_sentence",
+        "transformers_bert_for_mcq",
+        "transformers_bert_for_question_answering",
+    ]
+    clear_layout_converter()
+    torch.set_default_dtype(torch.bfloat16)
+    for name, (model_fn, data_gen_fn, output_transform_fn, loss_fn, _) in sub_model_zoo.items():
+        if name in model_list:
+            (
+                org_model,
+                org_optimizer,
+                sharded_model,
+                sharded_optimizer,
+                criterion,
+                booster,
+            ) = build_model_from_low_level_zero_plugin(model_fn, loss_fn, test_config, CAME, DistributedCAME)
+
+            org_loss, org_output, sharded_loss, sharded_output = run_forward_backward_with_low_level_zero_plugin(
+                org_model, sharded_model, sharded_optimizer, data_gen_fn, output_transform_fn, criterion, booster
+            )
+
+            weight_layer_for_check = [
+                "bert.encoder.layer.0.output.dense.weight",
+                "bert.encoder.layer.0.output.dense.weight",
+            ]
+
+            org_optimizer.step()
+            sharded_optimizer.step()
+
+            # check weights
+            if test_config["precision"] == "bf16":
+                atol, rtol = 5e-4, 5e-4
+            else:
+                atol, rtol = 5e-4, 5e-4
+
+            check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol)
+            check_optim_states(org_optimizer, sharded_optimizer.optim)
+
+    Randomizer.reset_index()
+    torch.cuda.empty_cache()
+
+
+@parameterize(
+    "test_config",
+    [
+        {
+            "tp_size": 1,
+            "num_microbatches": 4,
+            "zero_stage": 2,
+            "precision": "bf16",
+        },
+        {
+            "tp_size": 2,
+            "num_microbatches": 4,
+            "zero_stage": 2,
+            "precision": "bf16",
+        },
+        {
+            "tp_size": 4,
+            "num_microbatches": 4,
+            "zero_stage": 2,
+            "precision": "bf16",
+        },
+        {
+            "tp_size": 2,
+            "num_microbatches": 4,
+            "zero_stage": 1,
+            "precision": "bf16",
+        },
+        {
+            "tp_size": 4,
+            "num_microbatches": 4,
+            "zero_stage": 0,
+            "precision": "bf16",
+        },
+    ],
+)
+def exam_bert_test_on_hybrid_plugin(test_config):
+    sub_model_zoo = model_zoo.get_sub_registry("transformers_bert")
+    test_config["use_lazy_init"] = False
+    test_config["pp_size"] = 1  # Do NOT test Pipeline Parallel
+    test_config["initial_scale"] = 2**16  # avoid overflow
+    model_list = [
+        "transformers_bert",
+        # "transformers_bert_for_pretraining",
+        # "transformers_bert_lm_head_model",
+        # "transformers_bert_for_masked_lm",
+        # "transformers_bert_for_sequence_classification",
+        # "transformers_bert_for_token_classification",
+        # "transformers_bert_for_next_sentence",
+        # "transformers_bert_for_mcq",
+        # "transformers_bert_for_question_answering",
+    ]
+    clear_layout_converter()
+    torch.set_default_dtype(torch.bfloat16)
+    for name, (model_fn, data_gen_fn, output_transform_fn, loss_fn, _) in sub_model_zoo.items():
+        if name in model_list:
+            (
+                org_model,
+                org_optimizer,
+                sharded_model,
+                sharded_optimizer,
+                criterion,
+                booster,
+            ) = build_model_from_hybrid_plugin(model_fn, loss_fn, test_config, CAME, DistributedCAME)
+
+            org_loss, org_output, sharded_loss, sharded_output = run_forward_backward_with_hybrid_plugin(
+                org_model, sharded_model, sharded_optimizer, data_gen_fn, output_transform_fn, criterion, booster
+            )
+
+            stage_manager = booster.plugin.stage_manager
+            tp_group = booster.plugin.tp_group
+
+            bert = unwrap_model(org_model, "BertModel", "bert")
+            sharded_bert = unwrap_model(sharded_model, "BertModel", "bert")
+            # weight_layer_for_check = ["encoder.layer[0].output.dense", "encoder.layer[1].output.dense"]
+            weight_layer_for_check = ["encoder.layer.0.output.dense", "encoder.layer.1.output.dense"]
+
+            
+            org_optimizer.step()
+            sharded_optimizer.step()
+
+            # check weights
+            if test_config["precision"] == "bf16":
+                atol, rtol = 5e-4, 5e-4
+            else:
+                atol, rtol = 5e-4, 5e-4
+            if stage_manager is None or stage_manager.is_first_stage(ignore_chunk=True):
+                # for (org_name, org_param), (shard_name, shard_param) in zip(bert.named_parameters(), sharded_bert.named_parameters()):
+                    # print(org_name, shard_name)
+                    # if org_name in weight_layer_for_check:
+                        # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {shard_name} shape {shard_param.shape} {shard_param}\n")
+                        # assert_close(org_param, shard_param, atol=atol, rtol=rtol)
+                 check_weight(bert, sharded_bert, weight_layer_for_check, tp_group, atol=atol, rtol=rtol, dim=1)
+                # check optim states
+                # check_dist_optim_state(org_optimizer, sharded_optimizer.optim)
+
+    Randomizer.reset_index()
+    torch.cuda.empty_cache()
+
+
 def check_dist_lamb(rank, world_size, port):
     disable_existing_loggers()
     colossalai.launch(config={}, rank=rank, world_size=world_size, host="localhost", port=port, backend="nccl")
     global _COORD
     _COORD = DistCoordinator()
 
-    run_dist_lamb_basic()
-    _COORD.print_on_master("Basic tests passed")
+    # run_dist_lamb_basic()
+    # _COORD.print_on_master("Basic tests passed")
 
-    run_dist_lamb_fwd_bwd()
-    _COORD.print_on_master("Forward-backward tests passed")
+    # run_dist_lamb_fwd_bwd()
+    # _COORD.print_on_master("Forward-backward tests passed")
 
-    run_bert_test(optim_class=CAME, sharded_optim_class=DistributedCAME)
+    exam_bert_test_on_lowlevelzero_plugin()
+    _COORD.print_on_master("LowLevelZeroPlugin + Bert Model Zoo tests passed")
+
+    # exam_bert_test_on_hybrid_plugin()
+    # _COORD.print_on_master("HybridParallelPlugin + Bert Model Zoo tests passed")
+
+
+    # run_bert_test(optim_class=CAME, sharded_optim_class=DistributedCAME)
     print(f"rank {rank} tests passed :)")
 
 

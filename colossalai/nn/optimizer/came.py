@@ -146,5 +146,6 @@ class CAME(torch.optim.Optimizer):
                     p.data.add_(p.data, alpha=-group["weight_decay"] * group["lr"])
                 update.mul_(group["lr"])
                 p.data.add_(-update)
+                # print(f"Base {update}")
 
         return loss
