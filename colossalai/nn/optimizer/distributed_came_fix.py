@@ -101,13 +101,26 @@ class DistributedCAME(DistributedOptim):
             for p in group["params"]:
                 self.param_is_dtensor_dict[id(p)] = is_distributed_tensor(self.shard_to_param.get(id(p)))
                 self.grad_shape_dict[id(p)] = self.shard_to_param.get(id(p)).shape
-                self.factored_dict[id(p)] = self._get_options(
-                    self.grad_shape_dict[id(p)]
-                )
+                # self.factored_dict[id(p)] = self._get_options(
+                #     self.grad_shape_dict[id(p)]
+                # )
+                # Avoid row parallel lead H=1, then factored param is determined as not factored;
                 if self.param_is_dtensor_dict[id(p)]:
                     self.shard_spec_dict[id(p)] = get_sharding_spec(self.shard_to_param.get(id(p)))
+                    if self.shard_spec_dict[id(p)].sharding_sequence[0] == 'R':
+                        self.factored_dict[id(p)] = True
+                    elif self.shard_spec_dict[id(p)].sharding_sequence[-1] == 'R':
+                        self.factored_dict[id(p)] = True
+                    else:
+                        self.factored_dict[id(p)] = self._get_options(
+                            self.grad_shape_dict[id(p)]
+                            )
+                    
                 else:
                     self.shard_spec_dict[id(p)] = None
+                    self.factored_dict[id(p)] = self._get_options(
+                        self.grad_shape_dict[id(p)]
+                        )
 
     @staticmethod
     def _get_options(param_shape):
@@ -283,6 +296,70 @@ class DistributedCAME(DistributedOptim):
             update = self._approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
             update.mul_(grad)
         return update
+    
+    # factor 
+    def _base_res_factor(self, res, exp_avg, state_row, state_col, grad_shape, beta2t):
+        # res shape = exp_avg shape = grad shape
+        # print(f"Device {dist.get_rank()}\n exp_avg_res_row {state_row}\n exp_avg_res_col {state_col} \n\n")
+        if self.use_zero:
+            # only zero
+            if grad_shape[0] % self.data_parallel_size != 0:
+                # view res to origin shape res.view(grad_shape[0]//self.data_parallel_size , grad_shape[1])
+                # row mean no change
+                # col mean need reduce and div
+                # gather res[flatten] along dp group then reshape to [H, W]
+                res = _gather(input_=res, dim=-1, process_group=self.data_parallel_group)
+                # view res to origin[tp] shape
+                res_reshape = res.view(-1, grad_shape[1])
+                # gather exp_avg[flatten] along dp group then reshape to [H, W]
+                exp_avg = _gather(input_=exp_avg, dim=-1, process_group=self.data_parallel_group)
+                exp_avg_reshape = exp_avg.view(-1, grad_shape[1])
+                # exp_avg_sq_row = state["exp_avg_sq_row"]  # [H/dp]
+                # exp_avg_sq_col = state["exp_avg_sq_col"]  # [W]
+                exp_avg_sq_row = state_row  # [H/dp]
+                exp_avg_sq_col = state_col  # [W]
+                exp_avg_sq_row.mul_(beta2t).add_(res_reshape.mean(dim=-1), alpha=(1.0 - beta2t))
+                exp_avg_sq_col.mul_(beta2t).add_(res_reshape.mean(dim=-2), alpha=(1.0 - beta2t))
+                # reduce col
+                dist.all_reduce(exp_avg_sq_col, group=self.tensor_parallel_group)
+                exp_avg_sq_col.div_(self.tensor_parallel_size)
+                res_reshape = self._approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
+                res_reshape.mul_(exp_avg_reshape)
+                res = _split(input_=res_reshape.view(-1), dim=-1, process_group=self.data_parallel_group)
+            else:
+                # no residual row
+                # view res to origin[tp] shape
+                res_reshape = res.view(-1, grad_shape[1])  # [H/dp, W]
+                exp_avg_reshape = exp_avg.view(-1, grad_shape[1])  # [H/dp, W]
+                # print(f"Device {dist.get_rank()}\n res_reshape {res_reshape}\n\n")
+                # print(f"Device {dist.get_rank()}\n exp_avg_reshape {exp_avg_reshape}\n\n")
+                
+                # exp_avg_sq_row = state["exp_avg_sq_row"]  # [H/tp]
+                # exp_avg_sq_col = state["exp_avg_sq_col"]  # [W]
+                exp_avg_sq_row = state_row  # [H/dp]
+                exp_avg_sq_col = state_col  # [W]
+                exp_avg_sq_row.mul_(beta2t).add_(res_reshape.mean(dim=-1), alpha=(1.0 - beta2t))
+                exp_avg_sq_col.mul_(beta2t).add_(res_reshape.mean(dim=-2), alpha=(1.0 - beta2t))
+                # reduce col
+                dist.all_reduce(exp_avg_sq_col, group=self.tensor_parallel_group)
+                exp_avg_sq_col.div_(self.tensor_parallel_size)
+                res_reshape = self._approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
+                res_reshape.mul_(exp_avg_reshape)
+                res = res_reshape.view(-1)
+        else:
+            # # base factor; no tp, no dp
+            # exp_avg_sq_row = state["exp_avg_sq_row"]
+            # exp_avg_sq_col = state["exp_avg_sq_col"]
+            exp_avg_sq_row = state_row  # [H/dp]
+            exp_avg_sq_col = state_col  # [W]
+            # Exponential average of row indexes
+            exp_avg_sq_row.mul_(beta2t).add_(res.mean(dim=-1), alpha=(1.0 - beta2t))
+            # Exponential average of columns indexes
+            exp_avg_sq_col.mul_(beta2t).add_(res.mean(dim=-2), alpha=(1.0 - beta2t))
+            # Approximation of exponential moving average of square of gradient
+            res = self._approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
+            res.mul_(exp_avg)
+        return res
 
 
     @torch.no_grad()
@@ -300,8 +377,9 @@ class DistributedCAME(DistributedOptim):
             for p in group["params"]:
                 if p.grad is None:
                     continue
-                # grad = self._unflatten_grad_tensor_by_param(p) if self.zero else p.grad.data
-                grad = p.grad
+                grad = p.grad 
+                # print(f"Dist device\n {dist.get_rank()} {grad}\n\n")
+                
                 if grad.is_sparse:
                     raise RuntimeError("CAME does not support sparse gradients.")
 
@@ -405,10 +483,16 @@ class DistributedCAME(DistributedOptim):
                         state["exp_avg_sq"] = state["exp_avg_sq"]
 
                 state["step"] += 1
-
+                
+                    
                 update = (grad**2) + group["eps"][0]
+                
                 if factored:
+                    # print(f"Dist device\n {dist.get_rank()} {update}\n\n")
+                    # print(f"Grad Dist device {dist.get_rank()} shard_spec {shard_spec} factored {factored} is_dtensor {param_is_dtensor} {grad}")
+                    # print(f"Dist device {dist.get_rank()} shard_spec {shard_spec} factored {factored} is_dtensor {param_is_dtensor} {update}")
                     if param_is_dtensor:
+                        
                         # ==============================
                         # First Dim is R, Last Dim is S{} means split dim -1  --->
                         # Coloum Parallel ---> sq_row need Do (col) Reduce
@@ -423,10 +507,12 @@ class DistributedCAME(DistributedOptim):
                             update = self._row_parallel_factor(update, grad, state["exp_avg_sq_row"], state["exp_avg_sq_col"], grad_shape, group["betas"][1])
                     else:
                         update = self._base_factor(update, grad, state["exp_avg_sq_row"], state["exp_avg_sq_col"], grad_shape, group["betas"][1])
+                    # print(f"Dist device\n {dist.get_rank()} {update}\n\n")
                 else:
                     exp_avg_sq = state["exp_avg_sq"]
                     exp_avg_sq.mul_(group["betas"][1]).add_(update, alpha=(1.0 - group["betas"][1]))
                     update = exp_avg_sq.rsqrt().mul_(grad)
+                    # print(f"Dist device\n {dist.get_rank()} {update}\n\n")
 
                 rms = self._rms(
                     update,
@@ -437,13 +523,18 @@ class DistributedCAME(DistributedOptim):
                     self.tensor_parallel_group,
                     self.data_parallel_group,
                 )
+                
+                # print(f"Device rms {rms}")
+                
                 update.div_((rms / group["clip_threshold"]).clamp_(min=1.0))
                 exp_avg = state["exp_avg"]
                 exp_avg.mul_(group["betas"][0]).add_(update, alpha=1 - group["betas"][0])
-
+                # print(f"Device {dist.get_rank()}\nexp_avg {exp_avg}\n\n")
+                
                 # Confidence-guided strategy
                 # Calculation of instability
                 res = (update - exp_avg) ** 2 + group["eps"][1]
+                # print(f"Device {dist.get_rank()}\n res {res}\n\n")
                 if factored:
                     if param_is_dtensor:
                         # ==============================
@@ -451,15 +542,17 @@ class DistributedCAME(DistributedOptim):
                         # Coloum Parallel ---> sq_row need Do (col) Reduce
                         # ==============================
                         if shard_spec.sharding_sequence[0] == "R":
-                            update = self._col_parallel_factor(res, grad, state["exp_avg_rms_row"], state["exp_avg_rms_col"], grad_shape, group["betas"][2])
+                            update = self._col_parallel_factor(res, exp_avg, state["exp_avg_res_row"], state["exp_avg_res_col"], grad_shape, group["betas"][2])
                         # ==============================
                         # Last Dim is R, First Dim is S{} means split dim 0  --->
                         # Row Parallel ---> sq_col need Do (row) Reduce
                         # ==============================
                         elif shard_spec.sharding_sequence[-1] == "R":
-                            update = self._row_parallel_factor(res, grad, state["exp_avg_rms_row"], state["exp_avg_rms_col"], grad_shape, group["betas"][2])
+                            update = self._row_parallel_factor(res, exp_avg, state["exp_avg_res_row"], state["exp_avg_res_col"], grad_shape, group["betas"][2])
+                        # print(f"Dist device\n {dist.get_rank()} {update}\n\n")
                     else:
-                        update = self._base_factor(res, grad, state["exp_avg_rms_row"], state["exp_avg_rms_col"], grad_shape, group["betas"][2])
+                        update = self._base_res_factor(res, exp_avg, state["exp_avg_res_row"], state["exp_avg_res_col"], grad_shape, group["betas"][2])
+                        # print(f"Dist device\n {dist.get_rank()} {update}\n\n")
                 else:
                     update = exp_avg
 

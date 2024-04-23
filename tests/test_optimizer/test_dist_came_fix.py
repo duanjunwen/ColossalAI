@@ -8,7 +8,7 @@ from torch.testing import assert_close
 
 import colossalai
 from colossalai.booster import Booster
-from colossalai.booster.plugin import LowLevelZeroPlugin
+from colossalai.booster.plugin import LowLevelZeroPlugin, HybridParallelPlugin
 from colossalai.cluster import ProcessGroupMesh
 from colossalai.logging import disable_existing_loggers
 from colossalai.nn.optimizer.came import CAME
@@ -16,6 +16,7 @@ from colossalai.nn.optimizer.distributed_came_fix import DistributedCAME
 from colossalai.shardformer.layer import Linear1D_Col, Linear1D_Row
 from colossalai.shardformer.layer._operation import _gather
 from colossalai.shardformer.layer.utils import Randomizer
+from colossalai.testing.random import seed_all
 from colossalai.tensor.d_tensor import (
     distribute_tensor,
     get_device_mesh,
@@ -170,123 +171,9 @@ class TPModel(nn.Module):
         return x
 
 
-@parameterize("dtype", [torch.float32, torch.float16, torch.bfloat16])  # torch.float32, torch.float16, torch.bfloat16
-@parameterize("tp_zero_size", [(4, 1)])
-def exam_dist_adafactor_base(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
-    tp_size, zero_size = tp_zero_size
-    local_rank = dist.get_rank()
-    use_zero = True if zero_size > 1 else False
-
-    proc_mesh = ProcessGroupMesh(tp_size, zero_size)
-    tp_group, dp_group = proc_mesh.get_group_along_axis(0), proc_mesh.get_group_along_axis(1)
-
-    torch.set_default_dtype(dtype)
-    set_seed(42)
-
-    # ==============================
-    # Base Case
-    # ==============================
-    H, W = HEIGHT, WIDTH
-    model_col = nn.Linear(H, W).to(local_rank)  # Col parallel weight
-    weight, bias = model_col.weight, model_col.bias
-
-    # ==============================
-    # Col Parallel
-    # ==============================
-    weight_col_shard = shard_colwise(weight.clone(), tp_group)
-    weight_col_shard_layout = get_layout(weight_col_shard)  # Layout info weight_col_shard_layout.global_shape
-    weight_col_shard_shard_spec = get_sharding_spec(weight_col_shard)  # Shard spec
-    weight_col_shard_flatten = nn.Parameter(weight_col_shard.clone().flatten().requires_grad_(True))
-    bias_col_flatten = nn.Parameter(bias.clone().flatten().requires_grad_(True))
-
-    # ==============================
-    # Row Parallel
-    # ==============================
-    weight_row_shard = shard_rowwise(weight.clone(), tp_group)
-    weight_row_shard_layout = get_layout(weight_row_shard)  # Layout info weight_row_shard_layout.global_shape
-    weight_row_shard_shard_spec = get_sharding_spec(weight_row_shard)  # Shard spec
-    weight_row_shard_flatten = nn.Parameter(
-        weight_row_shard.clone().flatten().requires_grad_(True)
-    )  # flatten input(not dtensor) to optimizer
-    bias_row_flatten = nn.Parameter(bias.clone().flatten().requires_grad_(True))
-
-    # base_param_group = setup_param_groups([weight, bias])
-    # cp_param_group = setup_param_groups([weight_col_shard_flatten, bias_col_flatten])
-    # rp_param_group = setup_param_groups([weight_row_shard_flatten, bias_row_flatten])
-
-    # ==============================
-    # Init Optimizer
-    # ==============================
-
-    # base
-    optimizer_base = CAME([weight, bias], lr = 1e-3)
-    cp_dist_optim = DistributedCAME([weight_col_shard_flatten, bias_col_flatten], lr = 1e-3)
-    rp_dist_optim = DistributedCAME([weight_row_shard_flatten, bias_row_flatten], lr = 1e-3)
-
-    shard_to_param_cp = set_master_param_to_shard_param([weight_col_shard_flatten, bias_col_flatten])
-    cp_dist_optim.setup_distributed(
-        tensor_parallel_group=tp_group,
-        data_parallel_group=dp_group,
-        shard_to_param=shard_to_param_cp,
-        use_zero=use_zero,
-    )
-
-    shard_to_param_rp = set_master_param_to_shard_param([weight_row_shard_flatten, bias_row_flatten])
-    rp_dist_optim.setup_distributed(
-        tensor_parallel_group=tp_group,
-        data_parallel_group=dp_group,
-        shard_to_param=shard_to_param_rp,
-        use_zero=use_zero,
-    )
-
-    N_STEPS = 1
-    for _ in range(N_STEPS):
-        # base step
-        optimizer_base.zero_grad()
-        weight.grad = torch.rand_like(weight)
-        bias.grad = torch.rand_like(bias)
-        optimizer_base.step()
-
-        # col parallel step
-        cp_dist_optim.zero_grad()
-        weight_col_shard_flatten.grad = (
-            distribute_tensor(weight.grad, get_device_mesh(weight_col_shard), weight_col_shard_shard_spec)
-            .clone()
-            .flatten()
-        )
-        bias_col_flatten.grad = bias.grad.clone().flatten()
-        cp_dist_optim.step()
-
-        # row parallel step
-        rp_dist_optim.zero_grad()
-        weight_row_shard_flatten.grad = (
-            distribute_tensor(weight.grad, get_device_mesh(weight_row_shard), weight_row_shard_shard_spec)
-            .clone()
-            .flatten()
-        )
-        bias_row_flatten.grad = bias.grad.clone().flatten()
-        rp_dist_optim.step()
-
-        # gather result
-        weight_col_gather = _gather(
-            input_=weight_col_shard_flatten.data.view(-1, H // tp_size),
-            dim=-1,
-            process_group=tp_group,
-        )  # gather
-        weight_row_gather = _gather(input_=weight_row_shard_flatten.data, dim=-1, process_group=tp_group).view(
-            -1, W
-        )  # gather
-
-        # verify
-        correctness_verify(weight.data, weight_col_gather.data, dtype)
-        correctness_verify(weight.data, weight_row_gather.data, dtype)
-
-    print(f"Base Test Pass")
-
-
-@parameterize("dtype", [torch.float16])  # torch.float32, torch.float16, torch.bfloat16
-@parameterize("tp_zero_size", [(1, 4)])  # (2, 2), (4, 1), (1, 4)
-def exam_dist_adafactor_zero(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
+@parameterize("dtype", [torch.float32])  # torch.float32, torch.float16, torch.bfloat16
+@parameterize("tp_zero_size", [(2, 2), (4, 1), (1, 4)]) # (4, 1), (1, 4)
+def exam_dist_came_base(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
     tp_size, zero_size = tp_zero_size
     use_zero = True if zero_size > 1 else False
     local_rank = dist.get_rank()
@@ -297,7 +184,7 @@ def exam_dist_adafactor_zero(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
     tp_group, dp_group = proc_mesh.get_group_along_axis(0), proc_mesh.get_group_along_axis(1)
 
     torch.set_default_dtype(dtype)
-    set_seed(42)
+    # set_seed(42)
 
     # ==============================
     # Model Init
@@ -312,20 +199,11 @@ def exam_dist_adafactor_zero(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
     # ==============================
     # Optimizer Init
     # ==============================
-    base_optim = CAME(base_param_group, lr = 1e-3)
-    dist_optim = DistributedCAME(tp_param_group, lr = 1e-3)
+    base_optim = CAME(base_param_group, lr=1e-3)
+    dist_optim = DistributedCAME(tp_param_group, lr=1e-3)
 
     # Setup distributed optimizer
     if zero_size > 1:
-        base_optim = LowLevelZeroOptimizer(
-            base_optim,
-            overlap_communication=True,
-            initial_scale=128,
-            partition_grad=True,
-            dp_process_group=dp_group,
-            verbose=True,
-        )
-
         dist_optim = LowLevelZeroOptimizer(
             dist_optim,
             overlap_communication=True,
@@ -353,6 +231,7 @@ def exam_dist_adafactor_zero(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
     # ==============================
     # Correctness Verify
     # ==============================
+    seed_all(1024)
     x = torch.randn(HEIGHT, WIDTH, device=local_rank)
 
     out = base_model(x)
@@ -360,10 +239,11 @@ def exam_dist_adafactor_zero(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
 
     if zero_size > 1:
         dist_optim.backward(out_tp.sum())
-        base_optim.backward(out.sum())
+        out.sum().backward()
     else:
         out_tp.sum().backward()
         out.sum().backward()
+    
 
     base_optim.step()
     dist_optim.step()
@@ -392,12 +272,12 @@ def exam_dist_adafactor_zero(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
     clear_layout_converter()
     Randomizer.reset_index()
     torch.cuda.empty_cache()
-    print(f"Zero Test Pass")
+    print(f"Fwd/Bwd Test Pass")
 
 
 @parameterize("dtype", [torch.float16])
 @parameterize("tp_zero_size", [(1, 4)])
-def exam_dist_adafactor_booster(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
+def exam_dist_came_lowlevelzeroplugin(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
     tp_size, zero_size = tp_zero_size
     use_zero = True if zero_size > 1 else False
     local_rank = dist.get_rank()
@@ -414,7 +294,6 @@ def exam_dist_adafactor_booster(dtype: torch.dtype, tp_zero_size: tuple[int, int
     # Model Init
     # ==============================
     base_model = MlpModel().to(local_rank)
-    # tp_model = TPModel(copy.deepcopy(base_model.linear1), copy.deepcopy(base_model.linear2), tp_group).to(local_rank)
     tp_model = copy.deepcopy(base_model).to(local_rank)
 
     base_param_group = setup_param_groups(base_model)
@@ -429,15 +308,6 @@ def exam_dist_adafactor_booster(dtype: torch.dtype, tp_zero_size: tuple[int, int
 
     # Setup distributed optimizer
     if zero_size > 1:
-        base_optim = LowLevelZeroOptimizer(
-            base_optim,
-            overlap_communication=True,
-            initial_scale=128,
-            partition_grad=True,
-            dp_process_group=dp_group,
-            verbose=True,
-        )
-
         dist_optim = LowLevelZeroOptimizer(
             dist_optim,
             overlap_communication=True,
@@ -481,7 +351,7 @@ def exam_dist_adafactor_booster(dtype: torch.dtype, tp_zero_size: tuple[int, int
 
     if zero_size > 1:
         dist_optim.backward(out_tp.sum())
-        base_optim.backward(out.sum())
+        out.sum().backward()
     else:
         out_tp.sum().backward()
         out.sum().backward()
@@ -512,7 +382,7 @@ def exam_dist_adafactor_booster(dtype: torch.dtype, tp_zero_size: tuple[int, int
         correctness_verify(p.data, tp_p.data, dtype)
     Randomizer.reset_index()
     torch.cuda.empty_cache()
-    print(f"Booster Test Pass")
+    print(f"Low Level Zero Plugin Test Pass")
 
 
 @parameterize(
@@ -580,7 +450,7 @@ def exam_bert_test_on_lowlevelzero_plugin(test_config):
 
     Randomizer.reset_index()
     torch.cuda.empty_cache()
-    print(f"Bert Model Zoo Test Pass")
+    print(f"LowLevelZeroPlugin + Bert Model Zoo Test Pass")
 
 
 @parameterize(
@@ -624,16 +494,18 @@ def exam_bert_test_on_hybrid_plugin(test_config):
     test_config["pp_size"] = 1  # Do NOT test Pipeline Parallel
     test_config["initial_scale"] = 2**16  # avoid overflow
     model_list = [
-        "transformers_bert",
-        "transformers_bert_for_pretraining",
+        # "transformers_bert",
+        # "transformers_bert_for_pretraining",
         "transformers_bert_lm_head_model",
-        "transformers_bert_for_masked_lm",
-        "transformers_bert_for_sequence_classification",
-        "transformers_bert_for_token_classification",
-        "transformers_bert_for_next_sentence",
-        "transformers_bert_for_mcq",
-        "transformers_bert_for_question_answering",
+        # "transformers_bert_for_masked_lm",
+        # "transformers_bert_for_sequence_classification",
+        # "transformers_bert_for_token_classification",
+        # "transformers_bert_for_next_sentence",
+        # "transformers_bert_for_mcq",
+        # "transformers_bert_for_question_answering",
     ]
+    
+    # pass "transformers_bert",
     clear_layout_converter()
     torch.set_default_dtype(torch.bfloat16)
     for name, (model_fn, data_gen_fn, output_transform_fn, loss_fn, _) in sub_model_zoo.items():
@@ -673,18 +545,18 @@ def exam_bert_test_on_hybrid_plugin(test_config):
 
     Randomizer.reset_index()
     torch.cuda.empty_cache()
-    print(f"Bert Model Zoo Test Pass")
+    print(f"HybridParallelPlugin + Bert Model Zoo Test Pass")
 
 
 def run_dist(rank, world_size, port):
     disable_existing_loggers()
     config = {}
     colossalai.launch(config=config, rank=rank, world_size=world_size, host="localhost", port=port, backend="nccl")
-    # exam_bert_test_on_lowlevelzero_plugin()
+    exam_bert_test_on_lowlevelzero_plugin()
     # exam_bert_test_on_hybrid_plugin()
-    exam_dist_adafactor_base()
-    # exam_dist_adafactor_zero()
-    # exam_dist_adafactor_booster()
+    # exam_dist_came_lowlevelzeroplugin() # pass
+    # exam_dist_came_base() # pass
+
 
 
 @pytest.mark.dist

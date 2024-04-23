@@ -1,6 +1,7 @@
 # Copied from https://github.com/yangluo7/CAME/blob/master/came_pytorch/CAME.py
 import torch
 import torch.optim
+import torch.distributed as dist
 
 
 class CAME(torch.optim.Optimizer):
@@ -75,7 +76,8 @@ class CAME(torch.optim.Optimizer):
             for p in group["params"]:
                 if p.grad is None:
                     continue
-                grad = p.grad.data
+                grad = p.grad
+                # print(f"Main {grad}\n\n")
                 if grad.is_sparse:
                     raise RuntimeError("CAME does not support sparse gradients.")
 
@@ -102,9 +104,9 @@ class CAME(torch.optim.Optimizer):
                         state["exp_avg_sq"] = torch.zeros_like(p)
 
                 state["step"] += 1
-
                 update = (grad**2) + group["eps"][0]
                 if factored:
+                    # print(f"Base\n {update}\n\n")
                     exp_avg_sq_row = state["exp_avg_sq_row"]
                     exp_avg_sq_col = state["exp_avg_sq_col"]
 
@@ -114,24 +116,38 @@ class CAME(torch.optim.Optimizer):
                     # Approximation of exponential moving average of square of gradient
                     update = self._approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
                     update.mul_(grad)
+                    # if dist.get_rank() == 0:
+                    # print(f"Base\n {update}\n\n")
                 else:
                     exp_avg_sq = state["exp_avg_sq"]
 
                     exp_avg_sq.mul_(group["betas"][1]).add_(update, alpha=1.0 - group["betas"][1])
                     update = exp_avg_sq.rsqrt().mul_(grad)
-
+                    # if dist.get_rank() == 0:
+                    #     print(f"Base\n {update}\n\n")
+                    
                 update.div_((self._rms(update) / group["clip_threshold"]).clamp_(min=1.0))
 
                 exp_avg = state["exp_avg"]
                 exp_avg.mul_(group["betas"][0]).add_(update, alpha=1 - group["betas"][0])
+                # print(f"Main exp_avg\n {exp_avg}\n\n")
 
                 # Confidence-guided strategy
                 # Calculation of instability
                 res = (update - exp_avg) ** 2 + group["eps"][1]
+                
+                # print(f"Main res\n {res}\n\n")
+
 
                 if factored:
+                    # if dist.get_rank() == 0:
+                    #     # print(f"Base\n res {res}\n\n")
+                    #     print(f"Base\n exp_avg {exp_avg}\n\n")
                     exp_avg_res_row = state["exp_avg_res_row"]
                     exp_avg_res_col = state["exp_avg_res_col"]
+                    # if dist.get_rank() == 0:
+                    #     print(f"Base\n exp_avg_res_row {exp_avg_res_row}\n exp_avg_res_col {exp_avg_res_col} \n\n")
+                    
 
                     exp_avg_res_row.mul_(group["betas"][2]).add_(res.mean(dim=-1), alpha=1.0 - group["betas"][2])
                     exp_avg_res_col.mul_(group["betas"][2]).add_(res.mean(dim=-2), alpha=1.0 - group["betas"][2])
@@ -139,6 +155,8 @@ class CAME(torch.optim.Optimizer):
                     # Approximation of exponential moving average of instability
                     res_approx = self._approx_sq_grad(exp_avg_res_row, exp_avg_res_col)
                     update = res_approx.mul_(exp_avg)
+                    # if dist.get_rank() == 0:
+                    #     print(f"Base\n {update}\n\n")
                 else:
                     update = exp_avg
 
