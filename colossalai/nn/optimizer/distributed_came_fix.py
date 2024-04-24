@@ -131,7 +131,7 @@ class DistributedCAME(DistributedOptim):
     def _rms(tensor, param_is_dtensor, use_zero, tp_size, dp_size, tp_group, dp_group):
         tensor_sum = tensor.pow(2).sum()
         num_of_element = tensor.numel()
-
+        
         if param_is_dtensor:
             # reduce tensor_sum  from tp_group
             dist.all_reduce(tensor_sum, group=tp_group)
@@ -242,7 +242,10 @@ class DistributedCAME(DistributedOptim):
     def _base_factor(self, update, grad, state_row, state_col, grad_shape, beta2t):
         if self.use_zero:
             # only zero
-            if grad_shape[0] % self.data_parallel_size != 0:
+            #  [30522, 128], [2, 128]
+            if grad_shape[0] % self.data_parallel_size != 0:    
+                # print(f"Device res row {grad_shape[0] % self.data_parallel_size} {dist.get_rank()} {grad_shape} num of ele:{update.numel()}\n  tensor_sum {update.pow(2).sum()} {update}")
+                            
                 # view update to origin shape update.view(grad_shape[0]//self.data_parallel_size , grad_shape[1])
                 # row mean no change
                 # col mean need reduce and div
@@ -265,7 +268,11 @@ class DistributedCAME(DistributedOptim):
                 update_reshape = self._approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
                 update_reshape.mul_(grad_reshape)
                 update = _split(input_=update_reshape.view(-1), dim=-1, process_group=self.data_parallel_group)
+                # print(f"Device res row {grad_shape[0] % self.data_parallel_size} {dist.get_rank()} {grad_shape} num of ele:{update.numel()}\n  tensor_sum {update.pow(2).sum()} {update}")
+                
             else:
+                # print(f"Device {dist.get_rank()} {grad_shape} num of ele:{update.numel()}\n  tensor_sum {update.pow(2).sum()} {update}")
+                
                 # no residual row
                 # view update to origin[tp] shape
                 update_reshape = update.view(-1, grad_shape[1])  # [H/dp, W]
@@ -282,6 +289,8 @@ class DistributedCAME(DistributedOptim):
                 update_reshape = self._approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
                 update_reshape.mul_(grad_reshape)
                 update = update_reshape.view(-1)
+                # print(f"Device {dist.get_rank()} {grad_shape} num of ele:{update.numel()}\n  tensor_sum {update.pow(2).sum()} {update}")
+                
         else:
             # # base factor; no tp, no dp
             # exp_avg_sq_row = state["exp_avg_sq_row"]
@@ -484,8 +493,15 @@ class DistributedCAME(DistributedOptim):
 
                 state["step"] += 1
                 
-                    
+                # if len(grad_shape) > 1 and grad_shape[0] == 2:
+                #     print(f"Device {dist.get_rank()} {grad_shape} num of ele:{grad.numel()}\n  tensor_sum {grad.pow(2).sum()} {grad}")
+                
+                
                 update = (grad**2) + group["eps"][0]
+                
+                # if len(grad_shape) > 1 and grad_shape[0] == 2:
+                #     print(f"Device {dist.get_rank()} {grad_shape} num of ele:{update.numel()}\n  tensor_sum {update.pow(2).sum()} {update}")
+                
                 
                 if factored:
                     # print(f"Dist device\n {dist.get_rank()} {update}\n\n")
@@ -523,10 +539,10 @@ class DistributedCAME(DistributedOptim):
                     self.tensor_parallel_group,
                     self.data_parallel_group,
                 )
+                # (update.pow(2).sum()/ update.numel()).sqrt()
+                # print(f"Device {dist.get_rank()} {grad_shape} num of ele:{update.numel()}\n  rms {rms} tensor_sum {update.pow(2).sum()} {update}")
                 
-                # print(f"Device rms {rms}")
-                
-                update.div_((rms / group["clip_threshold"]).clamp_(min=1.0))
+                # update.div_((rms / group["clip_threshold"]).clamp_(min=1.0))
                 exp_avg = state["exp_avg"]
                 exp_avg.mul_(group["betas"][0]).add_(update, alpha=1 - group["betas"][0])
                 # print(f"Device {dist.get_rank()}\nexp_avg {exp_avg}\n\n")

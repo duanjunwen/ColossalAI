@@ -106,7 +106,16 @@ class CAME(torch.optim.Optimizer):
                         state["exp_avg_sq"] = torch.zeros_like(p)
 
                 state["step"] += 1
+                
+                # if dist.get_rank() == 0 and len(grad_shape) > 1 and grad_shape[0] == 2:
+                #     # print(f"Base _rms\n {grad_shape} {self._rms(update)}\n\n")
+                #     print(f"Base update\n {grad_shape} {grad}\n\n")
+                
                 update = (grad**2) + group["eps"][0]
+                
+                # if dist.get_rank() == 0 and len(grad_shape) > 1 and grad_shape[0] == 2:
+                #     # print(f"Base _rms\n {grad_shape} {self._rms(update)}\n\n")
+                #     print(f"Base update\n {grad_shape} {update}\n\n")
                 if factored:
                     # print(f"Base\n {update}\n\n")
                     exp_avg_sq_row = state["exp_avg_sq_row"]
@@ -129,11 +138,10 @@ class CAME(torch.optim.Optimizer):
                     #     print(f"Base\n {update}\n\n")
                 
                 # if dist.get_rank() == 0:
-                #     print(f"Base _rms\n {self._rms(update)}\n\n")
-                #     print(f"Base update\n {update}\n\n")
-
+                #     print(f"Base _rms\n {grad_shape} {self._rms(update)}\n\n")
+                #     # print(f"Base update\n {update}\n\n")
                     
-                update.div_((self._rms(update) / group["clip_threshold"]).clamp_(min=1.0))
+                # update.div_((self._rms(update) / group["clip_threshold"]).clamp_(min=1.0))
 
                 exp_avg = state["exp_avg"]
                 exp_avg.mul_(group["betas"][0]).add_(update, alpha=1 - group["betas"][0])

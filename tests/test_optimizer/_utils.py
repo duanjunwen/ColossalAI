@@ -250,10 +250,23 @@ def check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rto
     for (org_name, org_param), (sharded_name, sharded_param) in zip(
         org_model.named_parameters(), sharded_model.named_parameters()
     ):
-        print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
+        # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
             
         if org_name in weight_layer_for_check:
             # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
             # print(f"org_name {org_name} shape {org_param.shape} {org_param.grad}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param.grad}\n")
             
             assert_close(org_param, sharded_param, atol=atol, rtol=rtol)
+
+
+def check_dist_grad(org_model, sharded_model, weight_layer_for_check, atol, rtol):
+    for (org_name, org_param), (sharded_name, sharded_param) in zip(
+        org_model.named_parameters(), sharded_model.named_parameters()
+    ):
+        # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
+            
+        if org_name in weight_layer_for_check:
+        #     # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
+        #     # print(f"org_name {org_name} shape {org_param.shape} {org_param.grad}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param.grad}\n")
+            
+            assert_close(org_param.grad, sharded_param.grad, atol=atol, rtol=rtol)

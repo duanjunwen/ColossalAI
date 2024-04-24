@@ -32,7 +32,7 @@ from colossalai.testing import parameterize, rerun_if_address_is_in_use, spawn
 from colossalai.utils import set_seed
 from colossalai.zero import LowLevelZeroOptimizer
 from tests.kit.model_zoo import model_zoo
-from tests.test_optimizer._utils import check_dist_optim_state, check_dist_param, check_optim_states
+from tests.test_optimizer._utils import check_dist_optim_state, check_dist_param, check_optim_states, check_dist_grad
 from tests.test_shardformer.test_model._utils import (
     build_model_from_hybrid_plugin,
     build_model_from_low_level_zero_plugin,
@@ -43,7 +43,7 @@ from tests.test_shardformer.test_model._utils import (
 )
 
 HEIGHT = 128
-WIDTH = 128
+WIDTH = 256
 _TP_SPEC = DimSpec([0])
 _SEED = 0
 
@@ -232,7 +232,8 @@ def exam_dist_came_base(dtype: torch.dtype, tp_zero_size: tuple[int, int]):
     # Correctness Verify
     # ==============================
     seed_all(1024)
-    x = torch.randn(HEIGHT, WIDTH, device=local_rank)
+    # x = torch.randn(HEIGHT, WIDTH, device=local_rank)
+    x = torch.randn(WIDTH,HEIGHT,device=local_rank)
 
     out = base_model(x)
     out_tp = tp_model(x)
@@ -344,7 +345,8 @@ def exam_dist_came_lowlevelzeroplugin(dtype: torch.dtype, tp_zero_size: tuple[in
     # Correctness Verify
     # ==============================
     seed_all(0)
-    x = torch.rand(HEIGHT, WIDTH, device=local_rank)
+    # x = torch.rand(HEIGHT, WIDTH, device=local_rank)
+    x = torch.rand(WIDTH, HEIGHT, device=local_rank)
 
     out = base_model(x)
     out_tp = tp_model(x)
@@ -390,14 +392,19 @@ def exam_dist_came_lowlevelzeroplugin(dtype: torch.dtype, tp_zero_size: tuple[in
     ],
 )
 def exam_bert_test_on_lowlevelzero_plugin(test_config):
-    # sub_model_zoo = model_zoo.get_sub_registry("transformers_bert")
-    sub_model_zoo = model_zoo.get_sub_registry("simple_mlp")
+    sub_model_zoo = model_zoo.get_sub_registry("transformers_bert")
+    # sub_model_zoo = model_zoo.get_sub_registry("simple_mlp")
     test_config["use_lazy_init"] = False
     test_config["initial_scale"] = 2**10
+    # check weights
+    if test_config["precision"] == "bf16":
+        atol, rtol = 5e-4, 5e-4
+    else:
+        atol, rtol = 5e-4, 5e-4
     # test_config["initial_scale"] = 1
     model_list = [
         # "transformers_bert",
-        # "transformers_bert_for_pretraining",
+        "transformers_bert_for_pretraining",
         # "transformers_bert_lm_head_model",
         # "transformers_bert_for_masked_lm",
         # "transformers_bert_for_sequence_classification",
@@ -405,7 +412,7 @@ def exam_bert_test_on_lowlevelzero_plugin(test_config):
         # "transformers_bert_for_next_sentence",
         # "transformers_bert_for_mcq",
         # "transformers_bert_for_question_answering",
-        "simple_mlp"
+        # "simple_mlp"
     ]
     clear_layout_converter()
     torch.set_default_dtype(torch.bfloat16)
@@ -424,25 +431,29 @@ def exam_bert_test_on_lowlevelzero_plugin(test_config):
             org_loss, org_output, sharded_loss, sharded_output = run_forward_backward_with_low_level_zero_plugin(
                 org_model, sharded_model, sharded_optimizer, data_gen_fn, output_transform_fn, criterion, booster
             )
+            
+            # assert same output
+            # assert_close(org_output, org_output, atol=atol, rtol=rtol)
 
             # LowLevelZero not need warp
             # bert = unwrap_model(org_model, "BertModel", "bert")
             # sharded_bert = unwrap_model(sharded_model, "BertModel", "bert")
             weight_layer_for_check = [
-                "bert.encoder.layer.0.output.dense.weight",
+                "bert.encoder.layer.1.intermediate.dense.weight",
+                # "bert.encoder.layer.0.output.dense.weight",
                 # "bert.encoder.layer.1.output.dense.weight",
             ]
+            
+            # assert same weight before step 
+            # check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol)
+            
+            # assert same grad before step 
+            check_dist_grad(org_model, sharded_model, weight_layer_for_check, atol, rtol)
 
             org_optimizer.step()
             sharded_optimizer.step()
 
-            # check weights
-            if test_config["precision"] == "bf16":
-                atol, rtol = 5e-4, 5e-4
-            else:
-                atol, rtol = 5e-4, 5e-4
-
-
+            # assert same weight after step 
             check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol)
             # check_optim_states(org_optimizer, sharded_optimizer.optim)
 
@@ -454,12 +465,12 @@ def exam_bert_test_on_lowlevelzero_plugin(test_config):
 @parameterize(
     "test_config",
     [
-        # {
-        #     "tp_size": 1,
-        #     "num_microbatches": 4,
-        #     "zero_stage": 2,
-        #     "precision": "bf16",
-        # },
+        {
+            "tp_size": 1,
+            "num_microbatches": 4,
+            "zero_stage": 2,
+            "precision": "bf16",
+        },
         # {
         #     "tp_size": 2,
         #     "num_microbatches": 4,
