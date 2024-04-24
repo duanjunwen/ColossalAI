@@ -77,7 +77,9 @@ class CAME(torch.optim.Optimizer):
                 if p.grad is None:
                     continue
                 grad = p.grad
-                # print(f"Main {grad}\n\n")
+                # if dist.get_rank() == 0 and (grad.shape[0],grad.shape[1]) == (128, 128):
+                #     print(f"Base {grad[0]}\n\n")
+
                 if grad.is_sparse:
                     raise RuntimeError("CAME does not support sparse gradients.")
 
@@ -117,7 +119,7 @@ class CAME(torch.optim.Optimizer):
                     update = self._approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
                     update.mul_(grad)
                     # if dist.get_rank() == 0:
-                    # print(f"Base\n {update}\n\n")
+                    #     print(f"Base\n {update}\n\n")
                 else:
                     exp_avg_sq = state["exp_avg_sq"]
 
@@ -125,6 +127,11 @@ class CAME(torch.optim.Optimizer):
                     update = exp_avg_sq.rsqrt().mul_(grad)
                     # if dist.get_rank() == 0:
                     #     print(f"Base\n {update}\n\n")
+                
+                # if dist.get_rank() == 0:
+                #     print(f"Base _rms\n {self._rms(update)}\n\n")
+                #     print(f"Base update\n {update}\n\n")
+
                     
                 update.div_((self._rms(update) / group["clip_threshold"]).clamp_(min=1.0))
 
@@ -136,7 +143,10 @@ class CAME(torch.optim.Optimizer):
                 # Calculation of instability
                 res = (update - exp_avg) ** 2 + group["eps"][1]
                 
-                # print(f"Main res\n {res}\n\n")
+
+                # if dist.get_rank() == 0:
+                #     print(f"Base update\n {update}\n\n")
+                #     print(f"Base res\n {res}\n\n")
 
 
                 if factored:
@@ -158,7 +168,7 @@ class CAME(torch.optim.Optimizer):
                     # if dist.get_rank() == 0:
                     #     print(f"Base\n {update}\n\n")
                 else:
-                    update = exp_avg
+                    update = exp_avg.clone()
 
                 if group["weight_decay"] != 0:
                     p.data.add_(p.data, alpha=-group["weight_decay"] * group["lr"])
