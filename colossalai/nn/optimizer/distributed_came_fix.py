@@ -539,6 +539,11 @@ class DistributedCAME(DistributedOptim):
                     self.tensor_parallel_group,
                     self.data_parallel_group,
                 )
+                
+                # if grad_shape[0]==30522:
+                #     print(f"Device {dist.get_rank()}  rms \n {grad_shape} {rms}\n\n")
+                
+                
                 # (update.pow(2).sum()/ update.numel()).sqrt()
                 # print(f"Device {dist.get_rank()} {grad_shape} num of ele:{update.numel()}\n  rms {rms} tensor_sum {update.pow(2).sum()} {update}")
                 

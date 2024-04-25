@@ -77,7 +77,7 @@ class CAME(torch.optim.Optimizer):
                 if p.grad is None:
                     continue
                 grad = p.grad
-                # if dist.get_rank() == 0 and (grad.shape[0],grad.shape[1]) == (128, 128):
+                # if dist.get_rank() == 0 and grad.shape[0]==30522:
                 #     print(f"Base {grad[0]}\n\n")
 
                 if grad.is_sparse:
@@ -107,7 +107,7 @@ class CAME(torch.optim.Optimizer):
 
                 state["step"] += 1
                 
-                # if dist.get_rank() == 0 and len(grad_shape) > 1 and grad_shape[0] == 2:
+                # if dist.get_rank() == 0 and grad.shape[0]==30522:
                 #     # print(f"Base _rms\n {grad_shape} {self._rms(update)}\n\n")
                 #     print(f"Base update\n {grad_shape} {grad}\n\n")
                 
@@ -137,7 +137,7 @@ class CAME(torch.optim.Optimizer):
                     # if dist.get_rank() == 0:
                     #     print(f"Base\n {update}\n\n")
                 
-                # if dist.get_rank() == 0:
+                # if dist.get_rank() == 0 and grad.shape[0]==30522:
                 #     print(f"Base _rms\n {grad_shape} {self._rms(update)}\n\n")
                 #     # print(f"Base update\n {update}\n\n")
                     

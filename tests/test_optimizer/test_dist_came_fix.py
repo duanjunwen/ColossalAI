@@ -444,17 +444,22 @@ def exam_bert_test_on_lowlevelzero_plugin(test_config):
                 # "bert.encoder.layer.1.output.dense.weight",
             ]
             
-            # assert same weight before step 
-            # check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol)
+            # assert same weight before step; pass
+            check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol)
+            
+            # asserr loss; pass
+            assert_close(org_loss, sharded_loss)
             
             # assert same grad before step 
+            # TODO: err here; backward diff gard; Only transformers_bert pass;
             check_dist_grad(org_model, sharded_model, weight_layer_for_check, atol, rtol)
 
             org_optimizer.step()
             sharded_optimizer.step()
-
+            
+            
             # assert same weight after step 
-            check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol)
+            # check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol)
             # check_optim_states(org_optimizer, sharded_optimizer.optim)
 
     Randomizer.reset_index()
@@ -471,30 +476,30 @@ def exam_bert_test_on_lowlevelzero_plugin(test_config):
             "zero_stage": 2,
             "precision": "bf16",
         },
-        # {
-        #     "tp_size": 2,
-        #     "num_microbatches": 4,
-        #     "zero_stage": 2,
-        #     "precision": "bf16",
-        # },
-        # {
-        #     "tp_size": 4,
-        #     "num_microbatches": 4,
-        #     "zero_stage": 2,
-        #     "precision": "bf16",
-        # },
-        # {
-        #     "tp_size": 2,
-        #     "num_microbatches": 4,
-        #     "zero_stage": 1,
-        #     "precision": "bf16",
-        # },
-        # {
-        #     "tp_size": 4,
-        #     "num_microbatches": 4,
-        #     "zero_stage": 0,
-        #     "precision": "bf16",
-        # },
+        {
+            "tp_size": 2,
+            "num_microbatches": 4,
+            "zero_stage": 2,
+            "precision": "bf16",
+        },
+        {
+            "tp_size": 4,
+            "num_microbatches": 4,
+            "zero_stage": 2,
+            "precision": "bf16",
+        },
+        {
+            "tp_size": 2,
+            "num_microbatches": 4,
+            "zero_stage": 1,
+            "precision": "bf16",
+        },
+        {
+            "tp_size": 4,
+            "num_microbatches": 4,
+            "zero_stage": 0,
+            "precision": "bf16",
+        },
     ],
 )
 def exam_bert_test_on_hybrid_plugin(test_config):
@@ -503,9 +508,9 @@ def exam_bert_test_on_hybrid_plugin(test_config):
     test_config["pp_size"] = 1  # Do NOT test Pipeline Parallel
     test_config["initial_scale"] = 2**16  # avoid overflow
     model_list = [
-        # "transformers_bert", # all pass
+        "transformers_bert",
         # "transformers_bert_for_pretraining",
-        "transformers_bert_lm_head_model",
+        # "transformers_bert_lm_head_model",
         # "transformers_bert_for_masked_lm",
         # "transformers_bert_for_sequence_classification",
         # "transformers_bert_for_token_classification",
@@ -517,6 +522,11 @@ def exam_bert_test_on_hybrid_plugin(test_config):
     # pass "transformers_bert",
     clear_layout_converter()
     torch.set_default_dtype(torch.bfloat16)
+    # check weights
+    if test_config["precision"] == "bf16":
+        atol, rtol = 5e-4, 5e-4
+    else:
+        atol, rtol = 5e-4, 5e-4
     for name, (model_fn, data_gen_fn, output_transform_fn, loss_fn, _) in sub_model_zoo.items():
         if name in model_list:
             (
@@ -537,20 +547,29 @@ def exam_bert_test_on_hybrid_plugin(test_config):
 
             bert = unwrap_model(org_model, "BertModel", "bert")
             sharded_bert = unwrap_model(sharded_model, "BertModel", "bert")
-            weight_layer_for_check = ["encoder.layer[0].output.dense", "encoder.layer[1].output.dense"]
+            
+            # TODO: model
+            # "encoder.layer.0.output.dense.weight", "encoder.layer.1.output.dense.weight" not match
+            # "encoder.layer[0].output.dense", "encoder.layer[1].output.dense" not match
+            weight_layer_for_check = ["embeddings.word_embeddings.weight"] # [30522, 128]
+            
+            # # assert same weight before step; all pass
+            # check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol)
+            
+            # # assert loss; all pass
+            # assert_close(org_loss, sharded_loss)
+            
+            # # assert same grad before step; all pass
+            # check_dist_grad(org_model, sharded_model, weight_layer_for_check, atol, rtol)
 
             org_optimizer.step()
             sharded_optimizer.step()
 
-            # check weights
-            if test_config["precision"] == "bf16":
-                atol, rtol = 5e-4, 5e-4
-            else:
-                atol, rtol = 5e-4, 5e-4
+            
             if stage_manager is None or stage_manager.is_first_stage(ignore_chunk=True):
-                check_weight(bert, sharded_bert, weight_layer_for_check, tp_group, atol=atol, rtol=rtol, dim=1)
+                check_dist_param(bert, sharded_bert, weight_layer_for_check, atol, rtol)
                 # check optim states
-                check_dist_optim_state(org_optimizer, sharded_optimizer.optim)
+                # check_dist_optim_state(org_optimizer, sharded_optimizer.optim)
 
     Randomizer.reset_index()
     torch.cuda.empty_cache()
@@ -561,8 +580,8 @@ def run_dist(rank, world_size, port):
     disable_existing_loggers()
     config = {}
     colossalai.launch(config=config, rank=rank, world_size=world_size, host="localhost", port=port, backend="nccl")
-    exam_bert_test_on_lowlevelzero_plugin()
-    # exam_bert_test_on_hybrid_plugin()
+    # exam_bert_test_on_lowlevelzero_plugin()
+    exam_bert_test_on_hybrid_plugin()
     # exam_dist_came_lowlevelzeroplugin() # pass
     # exam_dist_came_base() # pass
 

@@ -252,8 +252,9 @@ def check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rto
     ):
         # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
             
-        if org_name in weight_layer_for_check:
-            # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
+        # if org_name in weight_layer_for_check and org_param.shape[0]==30524:
+        if org_param.shape[0]==30522:
+            print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
             # print(f"org_name {org_name} shape {org_param.shape} {org_param.grad}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param.grad}\n")
             
             assert_close(org_param, sharded_param, atol=atol, rtol=rtol)
@@ -266,7 +267,7 @@ def check_dist_grad(org_model, sharded_model, weight_layer_for_check, atol, rtol
         # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
             
         if org_name in weight_layer_for_check:
-        #     # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
-        #     # print(f"org_name {org_name} shape {org_param.shape} {org_param.grad}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param.grad}\n")
+            # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
+            # print(f"org_name {org_name} shape {org_param.shape} {org_param.grad}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param.grad}\n")
             
             assert_close(org_param.grad, sharded_param.grad, atol=atol, rtol=rtol)
