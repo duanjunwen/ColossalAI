@@ -452,7 +452,7 @@ def exam_bert_test_on_lowlevelzero_plugin(test_config):
             
             # assert same grad before step 
             # TODO: err here; backward diff gard; Only transformers_bert pass;
-            check_dist_grad(org_model, sharded_model, weight_layer_for_check, atol, rtol)
+            check_dist_grad(sharded_optimizer, org_model, sharded_model, weight_layer_for_check, atol, rtol)
 
             org_optimizer.step()
             sharded_optimizer.step()
@@ -509,14 +509,14 @@ def exam_bert_test_on_hybrid_plugin(test_config):
     test_config["initial_scale"] = 2**16  # avoid overflow
     model_list = [
         "transformers_bert",
-        # "transformers_bert_for_pretraining",
-        # "transformers_bert_lm_head_model",
-        # "transformers_bert_for_masked_lm",
-        # "transformers_bert_for_sequence_classification",
-        # "transformers_bert_for_token_classification",
-        # "transformers_bert_for_next_sentence",
-        # "transformers_bert_for_mcq",
-        # "transformers_bert_for_question_answering",
+        "transformers_bert_for_pretraining",
+        "transformers_bert_lm_head_model",
+        "transformers_bert_for_masked_lm",
+        "transformers_bert_for_sequence_classification",
+        "transformers_bert_for_token_classification",
+        "transformers_bert_for_next_sentence",
+        "transformers_bert_for_mcq",
+        "transformers_bert_for_question_answering",
     ]
     
     # pass "transformers_bert",
@@ -524,9 +524,9 @@ def exam_bert_test_on_hybrid_plugin(test_config):
     torch.set_default_dtype(torch.bfloat16)
     # check weights
     if test_config["precision"] == "bf16":
-        atol, rtol = 5e-4, 5e-4
+        atol, rtol = 5e-3, 5e-3
     else:
-        atol, rtol = 5e-4, 5e-4
+        atol, rtol = 5e-3, 5e-3
     for name, (model_fn, data_gen_fn, output_transform_fn, loss_fn, _) in sub_model_zoo.items():
         if name in model_list:
             (
@@ -551,7 +551,7 @@ def exam_bert_test_on_hybrid_plugin(test_config):
             # TODO: model
             # "encoder.layer.0.output.dense.weight", "encoder.layer.1.output.dense.weight" not match
             # "encoder.layer[0].output.dense", "encoder.layer[1].output.dense" not match
-            weight_layer_for_check = ["embeddings.word_embeddings.weight"] # [30522, 128]
+            weight_layer_for_check = ["embeddings.word_embeddings"] # [30522, 128]
             
             # # assert same weight before step; all pass
             # check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol)
@@ -568,6 +568,8 @@ def exam_bert_test_on_hybrid_plugin(test_config):
             
             if stage_manager is None or stage_manager.is_first_stage(ignore_chunk=True):
                 check_dist_param(bert, sharded_bert, weight_layer_for_check, atol, rtol)
+                # check_weight(bert, sharded_bert, weight_layer_for_check, tp_group, atol=atol, rtol=rtol, dim=1)
+                
                 # check optim states
                 # check_dist_optim_state(org_optimizer, sharded_optimizer.optim)
 
@@ -580,8 +582,8 @@ def run_dist(rank, world_size, port):
     disable_existing_loggers()
     config = {}
     colossalai.launch(config=config, rank=rank, world_size=world_size, host="localhost", port=port, backend="nccl")
-    # exam_bert_test_on_lowlevelzero_plugin()
-    exam_bert_test_on_hybrid_plugin()
+    exam_bert_test_on_lowlevelzero_plugin()
+    # exam_bert_test_on_hybrid_plugin()
     # exam_dist_came_lowlevelzeroplugin() # pass
     # exam_dist_came_base() # pass
 

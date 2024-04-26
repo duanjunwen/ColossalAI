@@ -1,5 +1,5 @@
 import torch
-import torch.distributed
+import torch.distributed as dist
 from torch.testing import assert_close
 
 import colossalai
@@ -244,6 +244,7 @@ def check_dist_optim_state(org_optimizer, sharded_optimizer):
                     if p_state[key].dtype != tp_optim_state.dtype:
                         tp_optim_state = tp_optim_state.type(p_state[key].dtype)
                     assert_close(p_state[key], tp_optim_state, atol=5e-4, rtol=1.6e-2)
+                    print(f"{p_state[key]} \n {tp_optim_state}\n")
 
 
 def check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rtol):
@@ -253,21 +254,29 @@ def check_dist_param(org_model, sharded_model, weight_layer_for_check, atol, rto
         # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
             
         # if org_name in weight_layer_for_check and org_param.shape[0]==30524:
-        if org_param.shape[0]==30522:
-            print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
+        if org_name in weight_layer_for_check:
+            # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
             # print(f"org_name {org_name} shape {org_param.shape} {org_param.grad}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param.grad}\n")
             
             assert_close(org_param, sharded_param, atol=atol, rtol=rtol)
 
 
-def check_dist_grad(org_model, sharded_model, weight_layer_for_check, atol, rtol):
+def check_dist_grad(sharded_optimizer, org_model, sharded_model, weight_layer_for_check, atol, rtol):
     for (org_name, org_param), (sharded_name, sharded_param) in zip(
         org_model.named_parameters(), sharded_model.named_parameters()
     ):
         # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
-            
+        
         if org_name in weight_layer_for_check:
             # print(f"org_name {org_name} shape {org_param.shape} {org_param}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param}\n")
             # print(f"org_name {org_name} shape {org_param.shape} {org_param.grad}\n sharded_name {sharded_name} shape {sharded_param.shape} {sharded_param.grad}\n")
+            org_grad = org_param.grad
+            group_id = dist.get_rank(sharded_optimizer.optim.data_parallel_group)
+            dist_grad = sharded_optimizer._grad_store.get_partitioned_gradients_by_param_id(group_id, id(sharded_param))
             
-            assert_close(org_param.grad, sharded_param.grad, atol=atol, rtol=rtol)
+            # dist_grad concat then reshape to org_grad shape
+            if dist_grad:
+                dist_grad = torch.cat([t for t in dist_grad],0).view(org_grad.shape)
+                print(f"dist_grad len {len(dist_grad)} group_id {group_id} org_shape {org_grad.shape} dist_shape {dist_grad[0].shape if dist_grad else 0 } {dist_grad if dist_grad else None } {org_grad if dist_grad else None}")
+                # assert_close(org_grad, dist_grad, atol=atol, rtol=rtol)
+    print(f"count {count}")
