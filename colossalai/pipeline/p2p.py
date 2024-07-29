@@ -650,20 +650,40 @@ class PipelineP2PCommunication:
             Any: The input tensor or input tensor list.
             List: List of handles for the communication requests, if overlap is enabled.
         """
+        model_chunk_id = self.stage_manager.model_chunk_id
         next_rank = self.stage_manager.get_next_rank() if is_send else None
         prev_rank = self.stage_manager.get_prev_rank() if is_recv else None
         group = self.stage_manager.get_p2p_process_group()
-        return _communicate(
-            output_object,
-            send_dst=next_rank,
-            recv_src=prev_rank,
-            send_group=group if is_send else None,
-            recv_group=group if is_recv else None,
-            send_metadata=send_metadata if is_send else False,
-            metadata_recv=metadata_recv if is_recv else None,
-            send_first=send_first,
-            overlap_p2p=self.overlap_p2p,
-        )
+        if model_chunk_id == 0 or model_chunk_id == None:
+            # common send_fwd_recv_fwd
+            # Sends the input tensor to the next pipeline stage and
+            # copy the output tensor from the next pipeline stage
+            return _communicate(
+                output_object,
+                send_dst=next_rank,
+                recv_src=prev_rank,
+                send_group=group if is_send else None,
+                recv_group=group if is_recv else None,
+                send_metadata=send_metadata if is_send else False,
+                metadata_recv=metadata_recv if is_recv else None,
+                send_first=send_first,
+                overlap_p2p=self.overlap_p2p,
+            )
+        else:
+            # reverse send_fwd_recv_fwd
+            # Sends the input tensor to the prev pipeline stage and
+            # copy the output tensor from the prev pipeline stage
+            return _communicate(
+                output_object,
+                send_dst=prev_rank,
+                recv_src=next_rank,
+                send_group=group if is_send else None,
+                recv_group=group if is_recv else None,
+                send_metadata=send_metadata if is_send else False,
+                metadata_recv=metadata_recv if is_recv else None,
+                send_first=send_first,
+                overlap_p2p=self.overlap_p2p,
+            )
 
     def send_backward_recv_backward(
         self,
@@ -688,22 +708,35 @@ class PipelineP2PCommunication:
             Any: The input tensor or input tensor list.
             List: List of handles for the communication requests, if overlap is enabled.
         """
+        model_chunk_id = self.stage_manager.model_chunk_id
         prev_rank = self.stage_manager.get_prev_rank() if is_send else None
         next_rank = self.stage_manager.get_next_rank() if is_recv else None
 
         group = self.stage_manager.get_p2p_process_group()
-
-        return _communicate(
-            input_object,
-            send_dst=prev_rank,
-            recv_src=next_rank,
-            send_group=group if is_send else None,
-            recv_group=group if is_recv else None,
-            send_metadata=send_metadata if is_send else False,
-            metadata_recv=metadata_recv if is_recv else None,
-            send_first=send_first,
-            overlap_p2p=self.overlap_p2p,
-        )
+        if model_chunk_id == 0 or model_chunk_id == None:
+            return _communicate(
+                input_object,
+                send_dst=prev_rank,
+                recv_src=next_rank,
+                send_group=group if is_send else None,
+                recv_group=group if is_recv else None,
+                send_metadata=send_metadata if is_send else False,
+                metadata_recv=metadata_recv if is_recv else None,
+                send_first=send_first,
+                overlap_p2p=self.overlap_p2p,
+            )
+        else:
+            return _communicate(
+                input_object,
+                send_dst=next_rank,
+                recv_src=prev_rank,
+                send_group=group if is_send else None,
+                recv_group=group if is_recv else None,
+                send_metadata=send_metadata if is_send else False,
+                metadata_recv=metadata_recv if is_recv else None,
+                send_first=send_first,
+                overlap_p2p=self.overlap_p2p,
+            )
 
     def send_forward_recv_backward(
         self,
@@ -721,19 +754,35 @@ class PipelineP2PCommunication:
             Any: The input tensor or input tensor list.
             List: List of handles for the communication requests, if overlap is enabled.
         """
+        model_chunk_id = self.stage_manager.model_chunk_id
+        prev_rank = self.stage_manager.get_prev_rank()
         next_rank = self.stage_manager.get_next_rank()
         group = self.stage_manager.get_p2p_process_group()
-        return _communicate(
-            input_object,
-            next_rank,
-            next_rank,
-            send_group=group,
-            recv_group=group,
-            send_metadata=send_metadata,
-            metadata_recv=metadata_recv,
-            send_first=send_first,
-            overlap_p2p=False,
-        )
+
+        if model_chunk_id == 0 or model_chunk_id == None:
+            return _communicate(
+                input_object,
+                next_rank,
+                next_rank,
+                send_group=group,
+                recv_group=group,
+                send_metadata=send_metadata,
+                metadata_recv=metadata_recv,
+                send_first=send_first,
+                overlap_p2p=False,
+            )
+        else:
+            return _communicate(
+                input_object,
+                prev_rank,
+                prev_rank,
+                send_group=group,
+                recv_group=group,
+                send_metadata=send_metadata,
+                metadata_recv=metadata_recv,
+                send_first=send_first,
+                overlap_p2p=False,
+            )
 
     def send_backward_recv_forward(
         self,
@@ -751,19 +800,35 @@ class PipelineP2PCommunication:
             Any: The input tensor or input tensor list.
             List: List of handles for the communication requests, if overlap is enabled.
         """
+        model_chunk_id = self.stage_manager.model_chunk_id
         prev_rank = self.stage_manager.get_prev_rank()
+        next_rank = self.stage_manager.get_next_rank()
         group = self.stage_manager.get_p2p_process_group()
-        return _communicate(
-            input_object,
-            prev_rank,
-            prev_rank,
-            send_group=group,
-            recv_group=group,
-            send_metadata=send_metadata,
-            metadata_recv=metadata_recv,
-            send_first=send_first,
-            overlap_p2p=False,
-        )
+
+        if model_chunk_id == 0 or model_chunk_id == None:
+            return _communicate(
+                input_object,
+                prev_rank,
+                prev_rank,
+                send_group=group,
+                recv_group=group,
+                send_metadata=send_metadata,
+                metadata_recv=metadata_recv,
+                send_first=send_first,
+                overlap_p2p=False,
+            )
+        else:
+            return _communicate(
+                input_object,
+                next_rank,
+                next_rank,
+                send_group=group,
+                recv_group=group,
+                send_metadata=send_metadata,
+                metadata_recv=metadata_recv,
+                send_first=send_first,
+                overlap_p2p=False,
+            )
 
     def p2p_communicate(
         self,

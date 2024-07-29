@@ -29,7 +29,7 @@ class PipelineStageManager:
         num_model_chunks: int = 1,
         num_layers_per_stage: Optional[List[int]] = None,
     ) -> None:
-        assert enable_interleave or num_model_chunks == 1, "num_model_chunks must be 1 when enable_interleave is False"
+        # assert enable_interleave or num_model_chunks == 1, "num_model_chunks must be 1 when enable_interleave is False"
 
         self.pg_mesh = pg_mesh
         self.pipeline_axis = pipeline_axis
