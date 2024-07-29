@@ -118,52 +118,52 @@ def run_pp(
         sharded_model, iter(input_list), criterion, pp_optimizer, return_loss=True, return_outputs=True
     )
 
-    # if stage_manager.is_last_stage(ignore_chunk=False):
-    #     print(f"torch_loss {torch_loss}; pp_loss {pp_ret['loss']};")
-    #     print(f"torch_output {torch_output}; pp_loss {pp_ret['outputs']};")
+    if stage_manager.is_last_stage(ignore_chunk=False):
+        print(f"torch_loss {torch_loss}; pp_loss {pp_ret['loss']};")
+        print(f"torch_output {torch_output}; pp_loss {pp_ret['outputs']};")
 
-    # # check loss
-    # if stage_manager.is_last_stage(ignore_chunk=False):
-    #     print(f"torch_loss {torch_loss}; pp_loss {pp_ret['loss']};")
-    #     assert torch.allclose(torch_loss, pp_ret["loss"])
+    # check loss
+    if stage_manager.is_last_stage(ignore_chunk=False):
+        print(f"torch_loss {torch_loss}; pp_loss {pp_ret['loss']};")
+        assert torch.allclose(torch_loss, pp_ret["loss"])
 
     # check gradients
     for i in range(num_model_chunk):
         idx = world_size * i + rank
-        print(f"torch weight grad {torch_model.layers[idx].weight.grad}; pp grad {sharded_model[i].weight.grad}")
-        print(f"torch bias grad {torch_model.layers[idx].bias.grad}; pp grad {sharded_model[i].bias.grad}")
+        # print(f"torch weight grad {torch_model.layers[idx].weight.grad}; pp grad {sharded_model[i].weight.grad}")
+        # print(f"torch bias grad {torch_model.layers[idx].bias.grad}; pp grad {sharded_model[i].bias.grad}")
 
-        # assert torch.allclose(torch_model.layers[idx].weight.grad, sharded_model[i].weight.grad)
-        # assert torch.allclose(torch_model.layers[idx].bias.grad, sharded_model[i].bias.grad)
+        assert torch.allclose(torch_model.layers[idx].weight.grad, sharded_model[i].weight.grad)
+        assert torch.allclose(torch_model.layers[idx].bias.grad, sharded_model[i].bias.grad)
 
-    # # step
-    # torch_optimizer.step()
-    # pp_optimizer.step()
-    # pp_optimizer.zero_grad()
+    # step
+    torch_optimizer.step()
+    pp_optimizer.step()
+    pp_optimizer.zero_grad()
 
-    # # check updated param
-    # for i in range(num_model_chunk):
-    #     idx = world_size * i + rank
-    #     assert torch.allclose(torch_model.layers[idx].weight, sharded_model[i].weight)
-    #     assert torch.allclose(torch_model.layers[idx].bias, sharded_model[i].bias)
+    # check updated param
+    for i in range(num_model_chunk):
+        idx = world_size * i + rank
+        assert torch.allclose(torch_model.layers[idx].weight, sharded_model[i].weight)
+        assert torch.allclose(torch_model.layers[idx].bias, sharded_model[i].bias)
 
-    # # forward only
-    # with torch.no_grad():
-    #     torch_output = torch_model(input_list[0])
-    #     torch_loss = criterion(torch_output)
+    # forward only
+    with torch.no_grad():
+        torch_output = torch_model(input_list[0])
+        torch_loss = criterion(torch_output)
 
-    #     pp_ret = schedule.forward_backward_step(
-    #         sharded_model, iter(input_list), criterion, pp_optimizer, return_loss=True
-    #     )
-    #     if stage_manager.is_last_stage(ignore_chunk=True):
-    #         assert torch.allclose(torch_loss, pp_ret["loss"])
+        pp_ret = schedule.forward_backward_step(
+            sharded_model, iter(input_list), criterion, pp_optimizer, return_loss=True
+        )
+        if stage_manager.is_last_stage(ignore_chunk=True):
+            assert torch.allclose(torch_loss, pp_ret["loss"])
 
-    # for layer in sharded_model:
-    #     if layer.weight.grad is None:
-    #         assert layer.weight.grad is None and layer.bias.grad is None
-    #     else:
-    #         assert torch.allclose(layer.weight.grad, torch.zeros_like(layer.weight.grad))
-    #         assert torch.allclose(layer.bias.grad, torch.zeros_like(layer.bias.grad))
+    for layer in sharded_model:
+        if layer.weight.grad is None:
+            assert layer.weight.grad is None and layer.bias.grad is None
+        else:
+            assert torch.allclose(layer.weight.grad, torch.zeros_like(layer.weight.grad))
+            assert torch.allclose(layer.bias.grad, torch.zeros_like(layer.bias.grad))
 
 
 @pytest.mark.dist
