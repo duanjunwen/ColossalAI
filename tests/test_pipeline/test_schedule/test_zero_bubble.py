@@ -118,9 +118,9 @@ def run_pp(
         sharded_model, iter(input_list), criterion, pp_optimizer, return_loss=True, return_outputs=True
     )
 
-    if stage_manager.is_last_stage(ignore_chunk=False):
-        print(f"torch_loss {torch_loss}; pp_loss {pp_ret['loss']};")
-        print(f"torch_output {torch_output}; pp_loss {pp_ret['outputs']};")
+    # if stage_manager.is_last_stage(ignore_chunk=False):
+    #     print(f"torch_loss {torch_loss}; pp_loss {pp_ret['loss']};")
+    #     print(f"torch_output {torch_output}; pp_loss {pp_ret['outputs']};")
 
     # check loss
     if stage_manager.is_last_stage(ignore_chunk=False):
