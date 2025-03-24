@@ -36,6 +36,7 @@ def launch_distributed(
     inference_microbatch_size: int,
     train_batch_size: int,
     train_microbatch_size: int,
+    pp_batch_size: int,
     dataset_config: Dict[str, Any],
     dataloaders_config: Dict[str, Any],
     inference_model_config: Dict[str, Any],
@@ -94,6 +95,7 @@ def launch_distributed(
             model_config=train_model_config,
             plugin_config=plugin_config,
             microbatch_size=train_microbatch_size,
+            pp_batch_size=pp_batch_size,
         )
         procs.append(consumer)
     ray.get([p.setup.remote() for p in procs])

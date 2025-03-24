@@ -3,15 +3,18 @@ from typing import Optional
 
 import ray
 import torch
+import torch.distributed as dist
 import wandb
 from coati.distributed.consumer import BaseConsumer
 from coati.distributed.loss import PolicyLoss
 from coati.distributed.reward.reward_fn import math_reward_fn
 from coati.distributed.reward.verifiable_reward import VerifiableReward
-from coati.distributed.utils import calc_action_log_probs
+from coati.distributed.utils import calc_action_log_probs, filter_microbatch_dicts, split_into_microbatches
 from coati.trainer.utils import all_reduce_mean
+from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from colossalai.cluster import DistCoordinator
 from colossalai.nn.optimizer import HybridAdam
 
 
@@ -31,6 +34,7 @@ class GRPOConsumer(BaseConsumer):
         model_config,
         plugin_config,
         microbatch_size=1,
+        pp_batch_size=8,
         num_generations=4,
         use_wandb=True,
     ):
@@ -47,6 +51,7 @@ class GRPOConsumer(BaseConsumer):
             model_config,
             plugin_config,
             microbatch_size,
+            pp_batch_size,
         )
         path = model_config.pop("path")
         self.policy_model = AutoModelForCausalLM.from_pretrained(path, **model_config)
@@ -86,10 +91,13 @@ class GRPOConsumer(BaseConsumer):
         if use_wandb and self.rank == 0:
             self.wandb_run = wandb.init(project="GRPO-V1", sync_tensorboard=True)
 
+        self.coordinator = None
+
     def setup(self):
         super().setup()
         self.policy_model, self.optimizer, *_ = self.booster.boost(self.policy_model, self.optimizer)
         self.reference_model, *_ = self.booster.boost(self.reference_model)
+        self.coordinator = DistCoordinator()
 
     def step(self, step_idx: int, **kwargs) -> Optional[float]:
         """
@@ -106,31 +114,103 @@ class GRPOConsumer(BaseConsumer):
         """
 
         # Reshape to [batch_size x num_of_generation, prompt_length + response_length]
-        data = {k: v.view(-1, v.size(-1)) for k, v in kwargs.items()}
-        action_mask = data["action_mask"]
-        num_action = action_mask.shape[1]
-        old_action_log_probs = data["action_log_probs"]
-        response_length = torch.sum(action_mask, dim=1).to(torch.float32)
 
         need_update = (step_idx + 1) % self.num_microbatches == 0
 
-        ctx = nullcontext() if need_update else self.booster.no_sync(self.policy_model, self.optimizer)
+        ctx = nullcontext()
+        # ctx = nullcontext() if need_update else self.booster.no_sync(self.policy_model, self.optimizer)
         with ctx:
-            policy_model_logits = self.policy_model(
-                input_ids=data["input_ids"],
-                attention_mask=data["attention_mask"],
-            )["logits"]
+            data = {k: v.view(-1, v.size(-1)) for k, v in kwargs.items()}
+            # print(f"Before split Rank {dist.get_rank()}] \
+            # input_ids {data['input_ids'].shape} \
+            # attention_mask {data['attention_mask'].shape} \
+            # action_mask {data['action_mask'].shape} \
+            # gt_answer {data['gt_answer'].shape}\ ")
+
+            data_iter = split_into_microbatches(data, self.pp_microbatch_size)  # self.pp_num_microbatches
+
+            # print(f"After split Rank {dist.get_rank()}] \
+            # input_ids {data_iter[0]['input_ids'].shape} \
+            # attention_mask {data_iter[0]['attention_mask'].shape} \
+            # action_mask {data_iter[0]['action_mask'].shape} \
+            # gt_answer {data_iter[0]['gt_answer'].shape}\ ")
+
+            input_ids = data["input_ids"]
+            attention_mask = data["attention_mask"]
+            action_mask = data["action_mask"]
+            num_action = action_mask.shape[1]
+            old_action_log_probs = data["action_log_probs"]
+            gt_answer = data["gt_answer"]
+            response_idx = data["response_idx"]
+            response_length = torch.sum(action_mask, dim=1).to(torch.float32)
+
+            policy_model_logits = None
+            reference_model_logits = None
+            if self.booster.plugin.pp_size > 1:
+                # allowed_keys = ("input_ids", "attention_mask")
+                # data_iter = [{key: value for key, value in data.items() if key in allowed_keys}]
+                data_iter = filter_microbatch_dicts(data_iter)
+                # We don't have to iter data_iter, cause data_iter means a microbatch now.
+                step_bar = tqdm(
+                    range(len(data_iter)),
+                    desc="Step",
+                    disable=not self.coordinator.rank == self.coordinator.world_size - 1,
+                )
+                # You must init two data iter for policy model and inference model respectively. or you will get next(data_iter) out of idx.
+                data_iter, data_iter_infer = iter(data_iter), iter(data_iter)
+                for step in step_bar:
+                    policy_model_output = self.booster.execute_pipeline(
+                        data_iter,
+                        self.policy_model,
+                        criterion=lambda x, y: x.logits.mean(),
+                        optimizer=self.optimizer,
+                        return_loss=False,
+                        return_outputs=True,
+                    )
+
+                    with torch.no_grad():
+                        reference_model_output = self.booster.execute_pipeline(
+                            data_iter_infer,
+                            self.reference_model,
+                            criterion=lambda x, y: x.logits.mean(),
+                            return_loss=False,
+                            return_outputs=True,
+                        )
+
+                    if self.booster.plugin.stage_manager.is_last_stage():
+                        local_policy_model_logits = policy_model_output["outputs"]["logits"]
+                        local_reference_model_logits = reference_model_output["outputs"]["logits"]
+                        if step == 0:
+                            policy_model_logits = local_policy_model_logits
+                            reference_model_logits = local_reference_model_logits
+                        else:
+                            policy_model_logits = torch.cat((policy_model_logits, local_policy_model_logits), dim=0)
+                            reference_model_logits = torch.cat(
+                                (reference_model_logits, local_reference_model_logits), dim=0
+                            )
+                    if self.booster.plugin.stage_manager.is_last_stage():
+                        print(
+                            f"Rank {dist.get_rank()} step {step} policy_model_logits {policy_model_logits.shape} {policy_model_logits} reference_model_logits {reference_model_logits.shape} {reference_model_logits}"
+                        )
+
+            else:
+                policy_model_logits = self.policy_model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                )["logits"]
+
+                with torch.no_grad():
+                    reference_model_logits = self.reference_model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                    )["logits"]
+
             action_log_probs = calc_action_log_probs(
-                policy_model_logits, data["input_ids"], num_action, self.plugin.shard_config
+                policy_model_logits, input_ids, num_action, self.plugin.shard_config
             )
 
-            with torch.no_grad():
-                reference_model_logits = self.reference_model(
-                    input_ids=data["input_ids"],
-                    attention_mask=data["attention_mask"],
-                )["logits"]
             reference_action_log_probs = calc_action_log_probs(
-                reference_model_logits, data["input_ids"], num_action, self.plugin.shard_config
+                reference_model_logits, input_ids, num_action, self.plugin.shard_config
             )
 
             per_token_kl = (
@@ -140,13 +220,11 @@ class GRPOConsumer(BaseConsumer):
             )
             kl = torch.sum(per_token_kl * action_mask, dim=-1) / torch.sum(action_mask, dim=-1)
 
-            reward_group = self.reward_model(
-                data["input_ids"], gt_answer=data["gt_answer"], response_idx=data["response_idx"]
-            )
+            reward_group = self.reward_model(input_ids, gt_answer=gt_answer, response_idx=response_idx)
 
-            reward = torch.tensor([value[0] for value in reward_group]).to(data["input_ids"].device)
-            format_reward = torch.tensor([value[1] for value in reward_group]).to(data["input_ids"].device)
-            acc_reward = torch.tensor([value[2] for value in reward_group]).to(data["input_ids"].device)
+            reward = torch.tensor([value[0] for value in reward_group]).to(input_ids.device)
+            format_reward = torch.tensor([value[1] for value in reward_group]).to(input_ids.device)
+            acc_reward = torch.tensor([value[2] for value in reward_group]).to(input_ids.device)
 
             # [batch_size, num_generations]
             group_reward = reward.view(-1, self.num_generations)
