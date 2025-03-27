@@ -3,7 +3,7 @@ from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import Qwen2MLP
 
 
-def test_qwen2mlp_cuda_vs_cpu():
+def test_qwen2mlp():
     # 初始化配置
     hidden_size = 768
     intermediate_size = 3072
@@ -46,4 +46,4 @@ def test_qwen2mlp_cuda_vs_cpu():
 
 
 if __name__ == "__main__":
-    test_qwen2mlp_cuda_vs_cpu()
+    test_qwen2mlp()
