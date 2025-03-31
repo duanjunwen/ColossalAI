@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
-
-from .utils import assert_function_close
+from utils import assert_function_close
 
 
 def test_matmul(device: str = "cpu", dtype=torch.float32, save_tensor: bool = False):

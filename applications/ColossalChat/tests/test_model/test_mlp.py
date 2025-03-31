@@ -3,8 +3,7 @@ import copy
 import torch
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import Qwen2MLP
-
-from .utils import assert_function_close
+from utils import assert_function_close
 
 
 def test_qwen2mlp(device: str = "cpu", save_tensor: bool = False):
