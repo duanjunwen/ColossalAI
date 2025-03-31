@@ -52,9 +52,11 @@ import pickle
 import sys
 from datetime import datetime
 from functools import partial
+from typing import Tuple
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode, _pop_mode_temporarily
+from transformers.modeling_outputs import BaseModelOutputWithPast
 
 
 class ModuleInfo(object):
@@ -129,15 +131,26 @@ def post_forward_hook(module, input, output):
     """
     global current_module_info
     current_module_info = current_module_info.father
+    print(f"type {type(input)} {type(output)}")
     tensor_pt = dict()
     for i in range(len(input)):
         if isinstance(input[i], torch.Tensor):
             tensor_pt[f"input_{i}"] = input[i].to("cpu")
-    for i in range(len(output)):
-        if isinstance(output[i], torch.Tensor):
-            tensor_pt[f"output_{i}"] = output[i].to("cpu")
+
+    if isinstance(output, Tuple):
+        for i in range(len(output)):
+            if isinstance(output[i], torch.Tensor):
+                tensor_pt[f"output_{i}"] = output[i].to("cpu")
+    elif isinstance(output, torch.Tensor):
+        tensor_pt[f"output_{0}"] = output.to("cpu")
+    elif isinstance(output, BaseModelOutputWithPast):
+        # last_hidden_state  transformers.modeling_outputs.BaseModelOutputWithPast
+        tensor_pt[f"output_{0}"] = output["last_hidden_state"].to("cpu")
+    else:
+        # transformers.modeling_outputs.CausalLMOutputWithPast
+        tensor_pt[f"output_{0}"] = output["logits"].to("cpu")
     torch.save(
-        tensor_pt, f"./tests/tensor_log/cuda/tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}.pt"
+        tensor_pt, f"./tests/tensor_log/cuda_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}.pt"
     )
 
 

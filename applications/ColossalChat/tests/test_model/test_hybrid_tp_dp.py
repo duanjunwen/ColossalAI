@@ -99,6 +99,8 @@ def test_hybrid_qwen(device: str = "cpu"):
     #####
     model.train()
     loss_dict = {}
+    # if not os.path.exists("./tests/tensor_log/"):
+    #     os.makedirs("./tests/tensor_log/")
     for epoch in range(NUM_EPOCHS):
         if booster.plugin.pp_size > 1:
             data_iter = iter(dataloader)
@@ -234,7 +236,7 @@ def test_hybrid_qwen_fwd(device: str = "cpu"):
                     "attention_mask": attention_mask.to("cpu"),
                     "logits": outputs["logits"].to("cpu"),
                 }
-                torch.save(tensor_pt, f"./tests/tensor_log/{device}/tensor_rank{dist.get_rank()}_step{step}.pt")
+                torch.save(tensor_pt, f"./tests/tensor_log/{device}_tensor_rank{dist.get_rank()}_step{step}.pt")
                 print(f"step {step} rank {dist.get_rank()} : loss {loss}")
                 total_loss += loss.item()
             # 将字典保存为 JSON 文件
