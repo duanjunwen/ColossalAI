@@ -58,7 +58,7 @@ def all_reduce_mean(loss: torch.Tensor, plugin: Plugin) -> torch.Tensor:
     return loss / dist.get_world_size(group)
 
 
-def test_hybrid_qwen():
+def test_hybrid_qwen(device: str = "cpu"):
     colossalai.launch_from_torch()
     get_accelerator()
     coordinator = DistCoordinator()
@@ -140,7 +140,7 @@ def test_hybrid_qwen():
                     "attention_mask": attention_mask.to("cpu"),
                     "logits": outputs["logits"].to("cpu"),
                 }
-                torch.save(tensor_pt, f"./tests/tensor_log/cuda/tensor_rank{dist.get_rank()}_step{step}.pt")
+                torch.save(tensor_pt, f"./tests/tensor_log/{device}/tensor_rank{dist.get_rank()}_step{step}.pt")
                 print(f"step {step} rank {dist.get_rank()} : loss {loss}")
                 loss_value = loss.detach().cpu().item()
                 loss_dict[step] = loss_value
@@ -160,7 +160,7 @@ def test_hybrid_qwen():
         print(f"Epoch {epoch + 1}, Loss: {total_loss / len(dataloader)}")
 
 
-def test_hybrid_qwen_fwd():
+def test_hybrid_qwen_fwd(device: str = "cpu"):
     colossalai.launch_from_torch()
     get_accelerator()
     coordinator = DistCoordinator()
@@ -234,7 +234,7 @@ def test_hybrid_qwen_fwd():
                     "attention_mask": attention_mask.to("cpu"),
                     "logits": outputs["logits"].to("cpu"),
                 }
-                torch.save(tensor_pt, f"./tests/tensor_log/cuda/tensor_rank{dist.get_rank()}_step{step}.pt")
+                torch.save(tensor_pt, f"./tests/tensor_log/{device}/tensor_rank{dist.get_rank()}_step{step}.pt")
                 print(f"step {step} rank {dist.get_rank()} : loss {loss}")
                 total_loss += loss.item()
             # 将字典保存为 JSON 文件
@@ -245,5 +245,12 @@ def test_hybrid_qwen_fwd():
 
 
 if __name__ == "__main__":
-    # test_hybrid_qwen()
-    test_hybrid_qwen_fwd()
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.npu.is_available():
+        device = "npu"
+    else:
+        device = "cpu"
+    dtype = torch.bfloat16
+    # test_hybrid_qwen(device)
+    test_hybrid_qwen_fwd(device)
