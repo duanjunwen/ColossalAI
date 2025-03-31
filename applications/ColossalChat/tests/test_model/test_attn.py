@@ -2,6 +2,8 @@ import torch
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
 
+from .utils import assert_function_close
+
 
 def test_qwen2attn(device: str = "cpu", save_tensor: bool = False):
     config = Qwen2Config(
@@ -23,8 +25,8 @@ def test_qwen2attn(device: str = "cpu", save_tensor: bool = False):
     hidden_size // config.num_heads
 
     # use ones align input
-    sin_pos = torch.sin(torch.randn(seq_length)).to(device)
-    cos_pos = torch.cos(torch.randn(seq_length)).to(device)
+    sin_pos = torch.sin(torch.ones(seq_length)).to(device)
+    cos_pos = torch.cos(torch.ones(seq_length)).to(device)
     position_embeddings = (sin_pos, cos_pos)
 
     hidden_states = torch.ones(batch_size, seq_length, hidden_size).to(device)
@@ -53,6 +55,11 @@ def test_qwen2attn(device: str = "cpu", save_tensor: bool = False):
         print(f"Tensor save at ./tests/tensor_log/{device}_Attn.pt")
 
 
+def assert_attn_close():
+    # assert test_matmul
+    assert_function_close("Qwen2Attn", f"./tests/tensor_log/cuda_Attn.pt", f"./tests/tensor_log/npu_Attn.pt")
+
+
 if __name__ == "__main__":
     save_tensor = True
     if torch.cuda.is_available():
@@ -62,3 +69,5 @@ if __name__ == "__main__":
     else:
         device = "cpu"
     test_qwen2attn(device, save_tensor)
+
+    assert_attn_close()

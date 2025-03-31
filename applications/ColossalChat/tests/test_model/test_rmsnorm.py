@@ -4,6 +4,8 @@ import torch
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import Qwen2RMSNorm
 
+from .utils import assert_function_close
+
 
 def test_qwen2rmsnorm(device: str = "cpu", save_tensor: bool = False):
     hidden_size = 768
@@ -49,6 +51,10 @@ def test_qwen2rmsnorm(device: str = "cpu", save_tensor: bool = False):
         }
         torch.save(tensor_pt, f"./tests/tensor_log/{device}_RMSNorm.pt")
         print(f"Tensor save at ./tests/tensor_log/{device}_RMSNorm.pt")
+
+
+def assert_mlp_close():
+    assert_function_close("Qwen2RMSNorm", f"./tests/tensor_log/cuda_RMSNorm.pt", f"./tests/tensor_log/npu_RMSNorm.pt")
 
 
 if __name__ == "__main__":

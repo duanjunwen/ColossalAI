@@ -3,8 +3,8 @@ import torch.nn.functional as F
 
 
 def test_matmul(device: str = "cpu", dtype=torch.float32, save_tensor: bool = False):
-    input1_cpu = torch.randn(10, 20).to(dtype=dtype)
-    input2_cpu = torch.randn(20, 10).to(dtype=dtype)
+    input1_cpu = torch.ones(4, 8).to(dtype=dtype)
+    input2_cpu = torch.ones(8, 4).to(dtype=dtype)
     input1_cuda = input1_cpu.to(device=device, dtype=dtype)
     input2_cuda = input2_cpu.to(device=device, dtype=dtype)
 
@@ -26,7 +26,7 @@ def test_matmul(device: str = "cpu", dtype=torch.float32, save_tensor: bool = Fa
 
 
 def test_dropout(device: str = "cpu", dtype=torch.float32, save_tensor: bool = False):
-    input_dropout = torch.randn(10, 20).to(dtype=dtype)
+    input_dropout = torch.ones(10, 20).to(dtype=dtype)
     input_dropout_cuda = input_dropout.to(device=device, dtype=dtype)
 
     dropout_result_cpu = F.dropout(input_dropout, p=0.5, training=False)
@@ -46,7 +46,7 @@ def test_dropout(device: str = "cpu", dtype=torch.float32, save_tensor: bool = F
 
 
 def test_softmax(device: str = "cpu", dtype=torch.float32, save_tensor: bool = False):
-    input_softmax = torch.randn(10, 20).to(dtype=dtype)
+    input_softmax = torch.ones(10, 20).to(dtype=dtype)
     input_softmax_cuda = input_softmax.to(device=device, dtype=dtype)
 
     softmax_result_cpu = F.softmax(input_softmax, dim=1)
@@ -65,6 +65,17 @@ def test_softmax(device: str = "cpu", dtype=torch.float32, save_tensor: bool = F
     print(f"nn.functional.softmax max diff on cpu vs {device}: {softmax_max_diff}")
 
 
+def assert_function_close():
+    # assert test_matmul
+    assert_function_close("matmul", f"./tests/tensor_log/cuda_matmul.pt", f"./tests/tensor_log/npu_matmul.pt")
+
+    # assert test_dropout
+    assert_function_close("dropout", f"./tests/tensor_log/cuda_dropout.pt", f"./tests/tensor_log/npu_dropout.pt")
+
+    # assert test_softmax
+    assert_function_close("softmax", f"./tests/tensor_log/cuda_softmax.pt", f"./tests/tensor_log/npu_softmax.pt")
+
+
 if __name__ == "__main__":
     if torch.cuda.is_available():
         device = "cuda"
@@ -77,3 +88,5 @@ if __name__ == "__main__":
     test_matmul(device, dtype, save_tensor)
     test_dropout(device, dtype, save_tensor)
     test_softmax(device, dtype, save_tensor)
+
+    # assert_function_close()

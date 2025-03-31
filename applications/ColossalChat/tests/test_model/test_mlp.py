@@ -4,6 +4,8 @@ import torch
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import Qwen2MLP
 
+from .utils import assert_function_close
+
 
 def test_qwen2mlp(device: str = "cpu", save_tensor: bool = False):
     hidden_size = 768
@@ -52,6 +54,10 @@ def test_qwen2mlp(device: str = "cpu", save_tensor: bool = False):
         }
         torch.save(tensor_pt, f"./tests/tensor_log/{device}_MLP.pt")
         print(f"Tensor save at ./tests/tensor_log/{device}_MLP.pt")
+
+
+def assert_mlp_close():
+    assert_function_close("Qwen2MLP", f"./tests/tensor_log/cuda_MLP.pt", f"./tests/tensor_log/npu_MLP.pt")
 
 
 if __name__ == "__main__":

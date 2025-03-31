@@ -16,7 +16,7 @@ def test_qwen2_rotary_embedding(device: str = "cpu", save_tensor: bool = False):
     )
 
     # init input
-    input_tensor = torch.randn(batch_size, seq_length, num_heads, head_dim)
+    input_tensor = torch.ones(batch_size, seq_length, num_heads, head_dim)
     positions = torch.arange(seq_length)
     positions = positions.unsqueeze(0).expand(batch_size, -1)
     rotary_embedding = Qwen2RotaryEmbedding(config)
