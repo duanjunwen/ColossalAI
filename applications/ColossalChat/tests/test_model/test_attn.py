@@ -4,7 +4,7 @@ from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
 from utils import assert_function_close
 
 
-def test_qwen2attn(device: str = "cpu", save_tensor: bool = False):
+def test_qwen2attn(device: str = "cpu", save_tensor: bool = False, load_tensor: bool = False):
     config = Qwen2Config(
         vocab_size=10000,
         hidden_size=768,
@@ -17,6 +17,8 @@ def test_qwen2attn(device: str = "cpu", save_tensor: bool = False):
 
     layer_idx = 0
     attention_layer = Qwen2Attention(config, layer_idx=layer_idx).to(device)
+    if load_tensor:
+        attention_layer.load_state_dict(torch.load(f"./tests/tensor_log/cuda_Attn_module.pt", map_location="cpu"))
 
     batch_size = 2
     seq_length = 10
@@ -53,6 +55,9 @@ def test_qwen2attn(device: str = "cpu", save_tensor: bool = False):
         torch.save(tensor_pt, f"./tests/tensor_log/{device}_Attn.pt")
         print(f"Tensor save at ./tests/tensor_log/{device}_Attn.pt")
 
+        attention_layer = attention_layer.cpu()
+        torch.save(attention_layer.state_dict(), f"./tests/tensor_log/{device}_Attn_module.pt")
+
 
 def assert_attn_close():
     # assert test_matmul
@@ -61,12 +66,13 @@ def assert_attn_close():
 
 if __name__ == "__main__":
     save_tensor = True
+    load_tensor = False
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.npu.is_available():
         device = "npu"
     else:
         device = "cpu"
-    test_qwen2attn(device, save_tensor)
+    test_qwen2attn(device, save_tensor, load_tensor)
 
     assert_attn_close()

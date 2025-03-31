@@ -6,11 +6,14 @@ from transformers.models.qwen2.modeling_qwen2 import Qwen2MLP
 from utils import assert_function_close
 
 
-def test_qwen2mlp(device: str = "cpu", save_tensor: bool = False):
+def test_qwen2mlp(device: str = "cpu", save_tensor: bool = False, load_tensor: bool = False):
     hidden_size = 768
     intermediate_size = 3072
     config = Qwen2Config(hidden_size=hidden_size, intermediate_size=intermediate_size)
     mlp = Qwen2MLP(config)
+    if load_tensor:
+        mlp.load_state_dict(torch.load(f"./tests/tensor_log/cuda_MLP_module.pt", map_location="cpu"))
+
     input_tensor = torch.ones(1, 128, hidden_size)
 
     # CPU
@@ -51,20 +54,31 @@ def test_qwen2mlp(device: str = "cpu", save_tensor: bool = False):
             "input": input_tensor_cuda.to("cpu"),
             "output_cuda": output_cuda.to("cpu"),
         }
-        torch.save(tensor_pt, f"./tests/tensor_log/{device}_MLP.pt")
-        print(f"Tensor save at ./tests/tensor_log/{device}_MLP.pt")
+        torch.save(tensor_pt, f"./tests/tensor_log/{device}_MLP_tensor.pt")
+        print(f"Tensor save at ./tests/tensor_log/{device}_MLP_tensor.pt")
+
+        mlp_cuda = mlp_cuda.cpu()
+        torch.save(mlp_cuda.state_dict(), f"./tests/tensor_log/{device}_MLP_module.pt")
 
 
 def assert_mlp_close():
     assert_function_close("Qwen2MLP", f"./tests/tensor_log/cuda_MLP.pt", f"./tests/tensor_log/npu_MLP.pt")
 
 
+def assert_mlp_module_close():
+    hidden_size = 768
+    intermediate_size = 3072
+    config = Qwen2Config(hidden_size=hidden_size, intermediate_size=intermediate_size)
+    Qwen2MLP(config)
+
+
 if __name__ == "__main__":
     save_tensor = True
+    load_tensor = False
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.npu.is_available():
         device = "npu"
     else:
         device = "cpu"
-    test_qwen2mlp(device, save_tensor)
+    test_qwen2mlp(device, save_tensor, load_tensor)
