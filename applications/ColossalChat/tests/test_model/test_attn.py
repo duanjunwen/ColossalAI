@@ -3,7 +3,7 @@ from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
 
 
-def test_qwen2attn(device: str = "cpu"):
+def test_qwen2attn(device: str = "cpu", save_tensor: bool = False):
     config = Qwen2Config(
         vocab_size=10000,
         hidden_size=768,
@@ -42,12 +42,23 @@ def test_qwen2attn(device: str = "cpu"):
 
     print("Output grad shape:", outputs[0].grad)
 
+    if save_tensor:
+        tensor_pt = {
+            "input1": sin_pos.to("cpu"),
+            "input2": cos_pos.to("cpu"),
+            "input3": hidden_states.to("cpu"),
+            "output": outputs[0].to("cpu"),
+        }
+        torch.save(tensor_pt, f"./tests/tensor_log/{device}_Attn.pt")
+        print(f"Tensor save at ./tests/tensor_log/{device}_Attn.pt")
+
 
 if __name__ == "__main__":
+    save_tensor = True
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.npu.is_available():
         device = "npu"
     else:
         device = "cpu"
-    test_qwen2attn(device)
+    test_qwen2attn(device, save_tensor)
