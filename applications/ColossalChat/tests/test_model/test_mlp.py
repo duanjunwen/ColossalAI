@@ -12,7 +12,7 @@ def test_qwen2mlp(device: str = "cpu", save_tensor: bool = False, load_tensor: b
     config = Qwen2Config(hidden_size=hidden_size, intermediate_size=intermediate_size)
     mlp = Qwen2MLP(config)
     if load_tensor:
-        mlp.load_state_dict(torch.load(f"./tests/tensor_log/cuda_MLP_module.pt", map_location="cpu"))
+        mlp.load_state_dict(torch.load(f"./tests/tensor_log/cuda_MLP_module.pth", map_location="cpu"))
 
     input_tensor = torch.ones(1, 128, hidden_size)
 
@@ -58,18 +58,32 @@ def test_qwen2mlp(device: str = "cpu", save_tensor: bool = False, load_tensor: b
         print(f"Tensor save at ./tests/tensor_log/{device}_MLP_tensor.pt")
 
         mlp_cuda = mlp_cuda.cpu()
-        torch.save(mlp_cuda.state_dict(), f"./tests/tensor_log/{device}_MLP_module.pt")
+        torch.save(mlp_cuda.state_dict(), f"./tests/tensor_log/{device}_MLP_module.pth")
 
 
 def assert_mlp_close():
-    assert_function_close("Qwen2MLP", f"./tests/tensor_log/cuda_MLP.pt", f"./tests/tensor_log/npu_MLP.pt")
+    assert_function_close("Qwen2MLP", f"./tests/tensor_log/cuda_MLP_tensor.pt", f"./tests/tensor_log/npu_MLP_tensor.pt")
 
 
 def assert_mlp_module_close():
     hidden_size = 768
     intermediate_size = 3072
     config = Qwen2Config(hidden_size=hidden_size, intermediate_size=intermediate_size)
-    Qwen2MLP(config)
+    mlp_nv = Qwen2MLP(config)
+    mlp_npu = Qwen2MLP(config)
+    mlp_nv = mlp_nv.load_state_dict(torch.load(f"./tests/tensor_log/cuda_MLP_module.pt", map_location="cpu"))
+    mlp_npu = mlp_npu.load_state_dict(torch.load(f"./tests/tensor_log/npu_MLP_module.pt", map_location="cpu"))
+
+    all_parameters_match = True
+    for (name_cpu, param_cpu), (name_cuda, param_cuda) in zip(mlp_nv.named_parameters(), mlp_npu.named_parameters()):
+        print(f"name_cpu {name_cpu}")
+        diff = (param_cpu - param_cuda.cpu()).abs().max()
+        if diff > 1e-6:
+            print(f"Layer {name_cpu} param assert fail, max abs err: {diff}")
+            all_parameters_match = False
+
+    if all_parameters_match:
+        print("Pass")
 
 
 if __name__ == "__main__":

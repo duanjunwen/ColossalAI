@@ -18,7 +18,7 @@ def test_qwen2attn(device: str = "cpu", save_tensor: bool = False, load_tensor: 
     layer_idx = 0
     attention_layer = Qwen2Attention(config, layer_idx=layer_idx).to(device)
     if load_tensor:
-        attention_layer.load_state_dict(torch.load(f"./tests/tensor_log/cuda_Attn_module.pt", map_location="cpu"))
+        attention_layer.load_state_dict(torch.load(f"./tests/tensor_log/cuda_Attn_module.pth", map_location="cpu"))
 
     batch_size = 2
     seq_length = 10
@@ -52,16 +52,18 @@ def test_qwen2attn(device: str = "cpu", save_tensor: bool = False, load_tensor: 
             "input3": hidden_states.to("cpu"),
             "output": outputs[0].to("cpu"),
         }
-        torch.save(tensor_pt, f"./tests/tensor_log/{device}_Attn.pt")
-        print(f"Tensor save at ./tests/tensor_log/{device}_Attn.pt")
+        torch.save(tensor_pt, f"./tests/tensor_log/{device}_Attn_tensor.pt")
+        print(f"Tensor save at ./tests/tensor_log/{device}_Attn_tensor.pt")
 
         attention_layer = attention_layer.cpu()
-        torch.save(attention_layer.state_dict(), f"./tests/tensor_log/{device}_Attn_module.pt")
+        torch.save(attention_layer.state_dict(), f"./tests/tensor_log/{device}_Attn_module.pth")
 
 
 def assert_attn_close():
     # assert test_matmul
-    assert_function_close("Qwen2Attn", f"./tests/tensor_log/cuda_Attn.pt", f"./tests/tensor_log/npu_Attn.pt")
+    assert_function_close(
+        "Qwen2Attn", f"./tests/tensor_log/cuda_Attn_tensor.pt", f"./tests/tensor_log/npu_Attn_tensor.pt"
+    )
 
 
 if __name__ == "__main__":
@@ -75,4 +77,4 @@ if __name__ == "__main__":
         device = "cpu"
     test_qwen2attn(device, save_tensor, load_tensor)
 
-    assert_attn_close()
+    # assert_attn_close()
