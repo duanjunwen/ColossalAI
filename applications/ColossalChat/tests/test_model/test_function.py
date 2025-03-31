@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 
+from .utils import assert_function_close
+
 
 def test_matmul(device: str = "cpu", dtype=torch.float32, save_tensor: bool = False):
     input1_cpu = torch.ones(4, 8).to(dtype=dtype)
@@ -65,7 +67,7 @@ def test_softmax(device: str = "cpu", dtype=torch.float32, save_tensor: bool = F
     print(f"nn.functional.softmax max diff on cpu vs {device}: {softmax_max_diff}")
 
 
-def assert_function_close():
+def assert_close():
     # assert test_matmul
     assert_function_close("matmul", f"./tests/tensor_log/cuda_matmul.pt", f"./tests/tensor_log/npu_matmul.pt")
 
@@ -89,4 +91,4 @@ if __name__ == "__main__":
     test_dropout(device, dtype, save_tensor)
     test_softmax(device, dtype, save_tensor)
 
-    # assert_function_close()
+    # assert_close()
