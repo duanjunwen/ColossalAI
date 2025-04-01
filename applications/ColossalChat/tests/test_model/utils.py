@@ -33,6 +33,6 @@ def compare_dict(
 
 
 def assert_function_close(name: str = "", path1=None, path2=None, assert_torch_testing=False):
-    dict_nv = torch.load(path1)
-    dict_npu = torch.load(path2)
+    dict_nv = torch.load(path1, map_location="cpu")
+    dict_npu = torch.load(path2, map_location="cpu")
     compare_dict(f"{name}", dict_nv, dict_npu, assert_torch_testing)
