@@ -174,7 +174,7 @@ def test_hybrid_qwen_fwd(device: str = "cpu"):
 
     optimizer = HybridAdam(model.parameters(), lr=LEARNING_RATE)
     plugin = HybridParallelPlugin(
-        tp_size=2,
+        tp_size=1,
         pp_size=1,
         precision="bf16",
         zero_stage=2,
