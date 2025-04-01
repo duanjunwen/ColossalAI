@@ -135,13 +135,13 @@ def post_forward_hook(module, input, output):
     """
     global current_module_info
     current_module_info = current_module_info.father
-    if module.__class__.__name__ == "Qwen2Attention":
-        path = f"./tests/tensor_log/{DEVICE_NAME}_Qwen2Attention_0.pt"
-        if not os.path.exists(path):
-            path = path
-        else:
-            path = path[:-4] + str(int(path[-4]) + 1) + ".pt"
-        torch.save(module.state_dict(), path)
+    # if module.__class__.__name__ == "Qwen2Attention":
+    #     path = f"./tests/tensor_log/{DEVICE_NAME}_Qwen2Attention_0.pt"
+    #     if not os.path.exists(path):
+    #         path = path
+    #     else:
+    #         path = path[:-4] + str(int(path[-4]) + 1) + ".pt"
+    #     torch.save(module.state_dict(), path)
     # tensor_pt = dict()
     # for i in range(len(input)):
     #     if isinstance(input[i], torch.Tensor):
