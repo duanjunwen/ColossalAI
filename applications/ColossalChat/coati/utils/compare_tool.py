@@ -52,11 +52,9 @@ import pickle
 import sys
 from datetime import datetime
 from functools import partial
-from typing import Tuple
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode, _pop_mode_temporarily
-from transformers.modeling_outputs import BaseModelOutputWithPast
 
 DEVICE_NAME = "cpu"
 if torch.cuda.is_available():
@@ -137,34 +135,40 @@ def post_forward_hook(module, input, output):
     """
     global current_module_info
     current_module_info = current_module_info.father
-    print(f"type {type(input)} {type(output)}")
-    tensor_pt = dict()
-    for i in range(len(input)):
-        if isinstance(input[i], torch.Tensor):
-            tensor_pt[f"input_{i}"] = input[i].to("cpu")
-
-    if isinstance(output, Tuple):
-        for i in range(len(output)):
-            if isinstance(output[i], torch.Tensor):
-                tensor_pt[f"output_{i}"] = output[i].to("cpu")
-    elif isinstance(output, torch.Tensor):
-        tensor_pt[f"output_{0}"] = output.to("cpu")
-    elif isinstance(output, BaseModelOutputWithPast):
-        # last_hidden_state  transformers.modeling_outputs.BaseModelOutputWithPast
-        tensor_pt[f"output_{0}"] = output["last_hidden_state"].to("cpu")
-    else:
-        # transformers.modeling_outputs.CausalLMOutputWithPast
-        tensor_pt[f"output_{0}"] = output["logits"].to("cpu")
-    if torch.distributed.get_rank() == 0:
-        path = f"./tests/tensor_log/{DEVICE_NAME}_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}_0.pt"
+    if module.__class__.__name__ == "Qwen2Attention":
+        path = f"./tests/tensor_log/{DEVICE_NAME}_Qwen2Attention_0.pt"
         if not os.path.exists(path):
             path = path
         else:
             path = path[:-4] + str(int(path[-4]) + 1) + ".pt"
-        torch.save(
-            tensor_pt,
-            path,
-        )
+        torch.save(module.state_dict(), path)
+    # tensor_pt = dict()
+    # for i in range(len(input)):
+    #     if isinstance(input[i], torch.Tensor):
+    #         tensor_pt[f"input_{i}"] = input[i].to("cpu")
+
+    # if isinstance(output, Tuple):
+    #     for i in range(len(output)):
+    #         if isinstance(output[i], torch.Tensor):
+    #             tensor_pt[f"output_{i}"] = output[i].to("cpu")
+    # elif isinstance(output, torch.Tensor):
+    #     tensor_pt[f"output_{0}"] = output.to("cpu")
+    # elif isinstance(output, BaseModelOutputWithPast):
+    #     # last_hidden_state  transformers.modeling_outputs.BaseModelOutputWithPast
+    #     tensor_pt[f"output_{0}"] = output["last_hidden_state"].to("cpu")
+    # else:
+    #     # transformers.modeling_outputs.CausalLMOutputWithPast
+    #     tensor_pt[f"output_{0}"] = output["logits"].to("cpu")
+    # if torch.distributed.get_rank() == 0:
+    #     path = f"./tests/tensor_log/{DEVICE_NAME}_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}_0.pt"
+    #     if not os.path.exists(path):
+    #         path = path
+    #     else:
+    #         path = path[:-4] + str(int(path[-4]) + 1) + ".pt"
+    #     torch.save(
+    #         tensor_pt,
+    #         path,
+    #     )
 
 
 def pre_backward_hook(module, grad_output):
