@@ -22,7 +22,6 @@ LEARNING_RATE = 2e-5
 GRADIENT_ACCUMULATION_STEPS = 1
 DATA_PATH = "/home/duanjunwen/datasets/math_dataset_profile.jsonl"  # math_dataset_profile.jsonl math_dataset.jsonl
 MODEL_PATH = "/home/duanjunwen/models/Qwen/Qwen2.5-3B"
-Device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class RandomDataset(Dataset):
