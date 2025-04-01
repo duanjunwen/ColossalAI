@@ -58,6 +58,12 @@ import torch
 from torch.utils._python_dispatch import TorchDispatchMode, _pop_mode_temporarily
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
+DEVICE_NAME = "cpu"
+if torch.cuda.is_available():
+    DEVICE_NAME = "cuda"
+elif torch.npu.is_available():
+    DEVICE_NAME = "npu"
+
 
 class ModuleInfo(object):
     """
@@ -150,7 +156,8 @@ def post_forward_hook(module, input, output):
         # transformers.modeling_outputs.CausalLMOutputWithPast
         tensor_pt[f"output_{0}"] = output["logits"].to("cpu")
     torch.save(
-        tensor_pt, f"./tests/tensor_log/cuda_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}.pt"
+        tensor_pt,
+        f"./tests/tensor_log/{DEVICE_NAME}_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}.pt",
     )
 
 

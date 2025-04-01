@@ -1,53 +1,56 @@
 import os
 
 import torch
+from torch.testing import assert_close
 
 
-def compare_pt_files(dir):
-    pt_files_dir1 = [os.path.join(dir, f) for f in os.listdir(dir) if (f.startwith("cuda") and f.endswith(".pt"))]
-    pt_files_dir2 = [os.path.join(dir, f) for f in os.listdir(dir) if (f.startwith("npu") and f.endswith(".pt"))]
+def compare_pt_files(directory):
+    # 存储文件名的字典，键为 ops_name，值为包含 cuda 和 npu 文件路径的列表
+    file_pairs = {}
 
-    file_names_dir1 = [os.path.basename(f) for f in pt_files_dir1]
-    file_names_dir2 = [os.path.basename(f) for f in pt_files_dir2]
+    # 遍历目录中的文件
+    for filename in os.listdir(directory):
+        if filename.endswith(".pt"):
+            if "cuda_" in filename:
+                ops_name = filename.replace("cuda_", "").replace(".pt", "")
+                if ops_name not in file_pairs:
+                    file_pairs[ops_name] = [None, None]
+                file_pairs[ops_name][0] = os.path.join(directory, filename)
+            elif "npu_" in filename:
+                ops_name = filename.replace("npu_", "").replace(".pt", "")
+                if ops_name not in file_pairs:
+                    file_pairs[ops_name] = [None, None]
+                file_pairs[ops_name][1] = os.path.join(directory, filename)
 
-    common_file_names = set(file_names_dir1).intersection(set(file_names_dir2))
+    # 遍历 file_pairs 字典，加载文件并比较
+    for ops_name, (cuda_file, npu_file) in file_pairs.items():
+        if cuda_file and npu_file:
+            try:
+                # 加载文件
+                cuda_dict = torch.load(cuda_file)
+                npu_dict = torch.load(npu_file)
 
-    for file_name in common_file_names:
-        file_path1 = os.path.join(dir, file_name)
-        file_path2 = os.path.join(dir, file_name)
-        # print(f"file_path1 {file_path1}")
-        # if 'RMSNorm.pt' not in file_path1:
-        #     continue
+                # 检查两个字典的键是否相同
+                if set(cuda_dict.keys()) != set(npu_dict.keys()):
+                    print(f"对于 ops_name {ops_name}，两个字典的键不相同。")
+                    continue
 
-        try:
+                # 逐个键比较值
+                all_close = True
+                for key in cuda_dict.keys():
+                    try:
+                        assert_close(cuda_dict[key], npu_dict[key])
+                    except AssertionError:
+                        print(f"对于 ops_name {ops_name}，键 {key} 的值不匹配。")
+                        all_close = False
 
-            dict1 = torch.load(file_path1)
-            dict2 = torch.load(file_path2)
+                if all_close:
+                    print(f"对于 ops_name {ops_name}，所有键的值都匹配。")
 
-            keys1 = set(dict1.keys())
-            keys2 = set(dict2.keys())
-            if keys1 != keys2:
-                print(f" {file_name} key not compare: {keys1.symmetric_difference(keys2)}")
-                continue
-
-            all_match = True
-            for key in keys1:
-                tensor1 = dict1[key]
-                tensor2 = dict2[key]
-                if not torch.allclose(tensor1, tensor2):
-                    # assert_close(tensor1, tensor2)
-                    print(
-                        f" {file_name} key: {key} tensor shape {tensor1.shape} dtype {tensor1.dtype} compare fail; \n {tensor1} \nvs\n {tensor2}"
-                    )
-                    all_match = False
-                else:
-                    print(f" {file_name} key: {key} tensor shape {tensor2.shape} dtype {tensor2.dtype} compare pass")
-
-            if all_match:
-                print(f"{file_name} tensor compare all pass")
-
-        except Exception as e:
-            print(f"Error in processing {file_name} error {e}")
+            except Exception as e:
+                print(f"在处理 ops_name {ops_name} 时出现错误: {e}")
+        else:
+            print(f"对于 ops_name {ops_name}，缺少对应的 cuda 或 npu 文件。")
 
 
 if __name__ == "__main__":

@@ -41,7 +41,8 @@ class RandomDataset(Dataset):
 
 
 def load_model_and_tokenizer():
-    attn_impl = "eager" if get_accelerator().name == "cuda" else "flash_attention_2"
+    attn_impl = "eager"
+    # if get_accelerator().name == "cuda" else "flash_attention_2"
     tokenizer = AutoTokenizer.from_pretrained(
         MODEL_PATH,
         trust_remote_code=True,
