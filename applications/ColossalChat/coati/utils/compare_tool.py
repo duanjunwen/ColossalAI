@@ -158,12 +158,13 @@ def post_forward_hook(module, input, output):
     if torch.distributed.get_rank() == 0:
         path = f"./tests/tensor_log/{DEVICE_NAME}_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}_0.pt"
         if not os.path.exists(path):
-            torch.save(
-                tensor_pt,
-                path,
-            )
+            path = path
         else:
             path = path[:-4] + str(int(path[-4]) + 1) + ".pt"
+        torch.save(
+            tensor_pt,
+            path,
+        )
 
 
 def pre_backward_hook(module, grad_output):
