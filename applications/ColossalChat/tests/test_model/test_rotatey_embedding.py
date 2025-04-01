@@ -1,6 +1,7 @@
 import torch
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import Qwen2RotaryEmbedding
+from utils import assert_function_close
 
 
 def test_qwen2_rotary_embedding(device: str = "cpu", save_tensor: bool = False):
@@ -48,6 +49,15 @@ def test_qwen2_rotary_embedding(device: str = "cpu", save_tensor: bool = False):
         assert max_diff < 1e-5, f"Max Abs error exceeded 1e-5: {max_diff.item()}"
 
 
+def assert_rms_close():
+    # assert_function_close("Qwen2RMSNorm", f"./tests/tensor_log/cuda_RMSNorm.pt", f"./tests/tensor_log/npu_RMSNorm.pt")
+    assert_function_close(
+        "Qwen2RMSNorm",
+        f"./tests/tensor_log/cuda_tensor_rank7_Qwen2RotaryEmbedding.pt",
+        f"./tests/tensor_log/npu_tensor_rank7_Qwen2RotaryEmbedding.pt",
+    )
+
+
 if __name__ == "__main__":
     save_tensor = False
     if torch.cuda.is_available():
@@ -56,4 +66,5 @@ if __name__ == "__main__":
         device = "npu"
     else:
         device = "cpu"
-    test_qwen2_rotary_embedding(device, save_tensor)
+    # test_qwen2_rotary_embedding(device, save_tensor)
+    assert_rms_close()

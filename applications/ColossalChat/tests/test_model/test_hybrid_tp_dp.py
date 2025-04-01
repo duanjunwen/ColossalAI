@@ -195,6 +195,7 @@ def test_hybrid_qwen_fwd(device: str = "cpu"):
         if isinstance(module, torch.nn.Dropout):
             module.p = 0
     model, optimizer, _, dataloader, _ = booster.boost(model, optimizer, None, dataloader)
+    model.eval()
 
     def is_master():
         if isinstance(plugin, HybridParallelPlugin) and plugin.pp_size > 1:
@@ -206,44 +207,45 @@ def test_hybrid_qwen_fwd(device: str = "cpu"):
     #####
     model.eval()
     loss_dict = {}
-    for epoch in range(NUM_EPOCHS):
-        if booster.plugin.pp_size > 1:
-            data_iter = iter(dataloader)
-            step_bar = tqdm(
-                range(len(dataloader)),
-                desc="Step",
-                disable=not is_master(),
-            )
-            for step in step_bar:
-                print(f"data_iter {data_iter}")
-                outputs = booster.execute_pipeline(
-                    data_iter,
-                    model,
-                    criterion=lambda outputs, inputs: outputs[0],
-                    optimizer=optimizer,
-                    return_loss=True,
+    with torch.no_grad():
+        for epoch in range(NUM_EPOCHS):
+            if booster.plugin.pp_size > 1:
+                data_iter = iter(dataloader)
+                step_bar = tqdm(
+                    range(len(dataloader)),
+                    desc="Step",
+                    disable=not is_master(),
                 )
-                loss = outputs["loss"]
-        else:
-            total_loss = 0
-            for step, batch in enumerate(dataloader):
-                input_ids = batch["input_ids"].to(device=model.module.device)
-                attention_mask = batch["attention_mask"].to(device=model.module.device)
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
-                loss = outputs.loss
-                tensor_pt = {
-                    "input_ids": input_ids.to("cpu"),
-                    "attention_mask": attention_mask.to("cpu"),
-                    "logits": outputs["logits"].to("cpu"),
-                }
-                torch.save(tensor_pt, f"./tests/tensor_log/{device}_tensor_rank{dist.get_rank()}_step{step}.pt")
-                print(f"step {step} rank {dist.get_rank()} : loss {loss}")
-                total_loss += loss.item()
-            # 将字典保存为 JSON 文件
-            if dist.get_rank() == 0:
-                with open("loss_dict.json", "w") as f:
-                    json.dump(loss_dict, f)
-        print(f"Epoch {epoch + 1}, Loss: {total_loss / len(dataloader)}")
+                for step in step_bar:
+                    print(f"data_iter {data_iter}")
+                    outputs = booster.execute_pipeline(
+                        data_iter,
+                        model,
+                        criterion=lambda outputs, inputs: outputs[0],
+                        optimizer=optimizer,
+                        return_loss=True,
+                    )
+                    loss = outputs["loss"]
+            else:
+                total_loss = 0
+                for step, batch in enumerate(dataloader):
+                    input_ids = batch["input_ids"].to(device=model.module.device)
+                    attention_mask = batch["attention_mask"].to(device=model.module.device)
+                    outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
+                    loss = outputs.loss
+                    # tensor_pt = {
+                    #     "input_ids": input_ids.to("cpu"),
+                    #     "attention_mask": attention_mask.to("cpu"),
+                    #     "logits": outputs["logits"].to("cpu"),
+                    # }
+                    # torch.save(tensor_pt, f"./tests/tensor_log/{device}_tensor_rank{dist.get_rank()}_step{step}.pt")
+                    # print(f"step {step} rank {dist.get_rank()} : loss {loss}")
+                    total_loss += loss.item()
+                # 将字典保存为 JSON 文件
+                if dist.get_rank() == 0:
+                    with open("loss_dict.json", "w") as f:
+                        json.dump(loss_dict, f)
+            print(f"Epoch {epoch + 1}, Loss: {total_loss / len(dataloader)}")
 
 
 if __name__ == "__main__":

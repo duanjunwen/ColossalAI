@@ -155,10 +155,11 @@ def post_forward_hook(module, input, output):
     else:
         # transformers.modeling_outputs.CausalLMOutputWithPast
         tensor_pt[f"output_{0}"] = output["logits"].to("cpu")
-    torch.save(
-        tensor_pt,
-        f"./tests/tensor_log/{DEVICE_NAME}_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}.pt",
-    )
+    if torch.distributed.get_rank() == 0:
+        torch.save(
+            tensor_pt,
+            f"./tests/tensor_log/{DEVICE_NAME}_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}.pt",
+        )
 
 
 def pre_backward_hook(module, grad_output):
