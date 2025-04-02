@@ -86,7 +86,7 @@ def test_hybrid_qwen(device: str = "cpu"):
     )
 
     booster = Booster(plugin=plugin)
-    # open_module_tracker(model)
+    open_module_tracker(model)
     model, optimizer, _, dataloader, _ = booster.boost(model, optimizer, None, dataloader)
 
     def is_master():
