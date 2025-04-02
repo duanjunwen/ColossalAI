@@ -17,7 +17,7 @@ from colossalai.nn.optimizer import HybridAdam
 from colossalai.testing.random import seed_all
 
 BATCH_SIZE = 1
-NUM_EPOCHS = 1
+NUM_EPOCHS = 4
 LEARNING_RATE = 2e-5
 GRADIENT_ACCUMULATION_STEPS = 1
 DATA_PATH = "/home/duanjunwen/datasets/math_dataset_profile.jsonl"  # math_dataset_profile.jsonl math_dataset.jsonl
@@ -70,7 +70,7 @@ def test_hybrid_qwen(device: str = "cpu"):
 
     optimizer = HybridAdam(model.parameters(), lr=LEARNING_RATE)
     plugin = HybridParallelPlugin(
-        tp_size=2,
+        tp_size=1,
         pp_size=1,
         precision="bf16",
         zero_stage=2,
@@ -86,7 +86,7 @@ def test_hybrid_qwen(device: str = "cpu"):
     )
 
     booster = Booster(plugin=plugin)
-    open_module_tracker(model)
+    # open_module_tracker(model)
     model, optimizer, _, dataloader, _ = booster.boost(model, optimizer, None, dataloader)
 
     def is_master():
@@ -137,13 +137,13 @@ def test_hybrid_qwen(device: str = "cpu"):
                 attention_mask = batch["attention_mask"].to(device=model.module.device)
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
                 loss = outputs.loss
-                tensor_pt = {
-                    "input_ids": input_ids.to("cpu"),
-                    "attention_mask": attention_mask.to("cpu"),
-                    "logits": outputs["logits"].to("cpu"),
-                }
-                torch.save(tensor_pt, f"./tests/tensor_log/{device}/tensor_rank{dist.get_rank()}_step{step}.pt")
-                print(f"step {step} rank {dist.get_rank()} : loss {loss}")
+                # tensor_pt = {
+                #     "input_ids": input_ids.to("cpu"),
+                #     "attention_mask": attention_mask.to("cpu"),
+                #     "logits": outputs["logits"].to("cpu"),
+                # }
+                # torch.save(tensor_pt, f"./tests/tensor_log/{device}/tensor_rank{dist.get_rank()}_step{step}.pt")
+                # print(f"step {step} rank {dist.get_rank()} : loss {loss}")
                 loss_value = loss.detach().cpu().item()
                 loss_dict[step] = loss_value
                 loss = loss / GRADIENT_ACCUMULATION_STEPS
@@ -231,6 +231,9 @@ def test_hybrid_qwen_fwd(device: str = "cpu"):
                 for step, batch in enumerate(dataloader):
                     input_ids = batch["input_ids"].to(device=model.module.device)
                     attention_mask = batch["attention_mask"].to(device=model.module.device)
+                    # input_ids = torch.arange(0, 1024).unsqueeze(0).to(device=model.module.device)
+                    # attention_mask =  torch.zeros((1, 1024)).to(dtype=torch.int64, device=model.module.device)
+                    # print(f"input_ids {input_ids} attention_mask {attention_mask}")
                     outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
                     loss = outputs.loss
                     # tensor_pt = {
@@ -256,5 +259,5 @@ if __name__ == "__main__":
     else:
         device = "cpu"
     dtype = torch.bfloat16
-    # test_hybrid_qwen(device)
-    test_hybrid_qwen_fwd(device)
+    test_hybrid_qwen(device)
+    # test_hybrid_qwen_fwd(device)
