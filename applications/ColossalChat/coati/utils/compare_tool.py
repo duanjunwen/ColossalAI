@@ -63,6 +63,8 @@ if torch.cuda.is_available():
 elif torch.npu.is_available():
     DEVICE_NAME = "npu"
 
+GLOBAL_IDX = 0
+
 
 class ModuleInfo(object):
     """
@@ -164,11 +166,13 @@ def post_forward_hook(module, input, output):
         # transformers.modeling_outputs.CausalLMOutputWithPast
         tensor_pt[f"output_{0}"] = output["logits"].to("cpu")
     if torch.distributed.get_rank() == 0:
-        path = f"./tests/tensor_log/{DEVICE_NAME}_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}_0.pt"
-        if not os.path.exists(path):
-            path = path
-        else:
-            path = path[:-4] + str(int(path[-4]) + 1) + ".pt"
+        global GLOBAL_IDX
+        path = f"./tests/tensor_log/{DEVICE_NAME}_tensor_rank{torch.distributed.get_rank()}_{module.__class__.__name__}_{GLOBAL_IDX}.pt"
+        GLOBAL_IDX += 1
+        # if not os.path.exists(path):
+        #     path = path
+        # else:
+        #     path = path[:-4] + str(int(path[-4]) + 1) + ".pt"
         torch.save(
             tensor_pt,
             path,

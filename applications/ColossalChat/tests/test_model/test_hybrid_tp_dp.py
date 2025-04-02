@@ -1,5 +1,4 @@
-import json
-
+import pandas as pd
 import torch
 import torch.distributed as dist
 from coati.dataset.loader import RawConversationDataset
@@ -17,7 +16,7 @@ from colossalai.nn.optimizer import HybridAdam
 from colossalai.testing.random import seed_all
 
 BATCH_SIZE = 1
-NUM_EPOCHS = 4
+NUM_EPOCHS = 1
 LEARNING_RATE = 2e-5
 GRADIENT_ACCUMULATION_STEPS = 1
 DATA_PATH = "/home/duanjunwen/datasets/math_dataset_profile.jsonl"  # math_dataset_profile.jsonl math_dataset.jsonl
@@ -70,11 +69,11 @@ def test_hybrid_qwen(device: str = "cpu"):
 
     optimizer = HybridAdam(model.parameters(), lr=LEARNING_RATE)
     plugin = HybridParallelPlugin(
-        tp_size=1,
+        tp_size=2,
         pp_size=1,
         precision="bf16",
         zero_stage=2,
-        cpu_offload=True,
+        # cpu_offload=True,
     )
     # plugin = HybridParallelPlugin(tp_size=2, pp_size=2, precision="bf16", zero_stage=1, num_microbatches=4, enable_flash_attention=True)
 
@@ -86,7 +85,7 @@ def test_hybrid_qwen(device: str = "cpu"):
     )
 
     booster = Booster(plugin=plugin)
-    open_module_tracker(model)
+    # open_module_tracker(model)
     model, optimizer, _, dataloader, _ = booster.boost(model, optimizer, None, dataloader)
 
     def is_master():
@@ -98,7 +97,7 @@ def test_hybrid_qwen(device: str = "cpu"):
     # train
     #####
     model.train()
-    loss_dict = {}
+    loss_list = []
     # if not os.path.exists("./tests/tensor_log/"):
     #     os.makedirs("./tests/tensor_log/")
     for epoch in range(NUM_EPOCHS):
@@ -145,7 +144,7 @@ def test_hybrid_qwen(device: str = "cpu"):
                 # torch.save(tensor_pt, f"./tests/tensor_log/{device}/tensor_rank{dist.get_rank()}_step{step}.pt")
                 # print(f"step {step} rank {dist.get_rank()} : loss {loss}")
                 loss_value = loss.detach().cpu().item()
-                loss_dict[step] = loss_value
+                loss_list.append(loss_value)
                 loss = loss / GRADIENT_ACCUMULATION_STEPS
                 booster.backward(loss, optimizer)
                 # print(f"finish backward")
@@ -155,11 +154,14 @@ def test_hybrid_qwen(device: str = "cpu"):
                     # print(f"finish optimizer step")
 
                 total_loss += loss.item()
-            # 将字典保存为 JSON 文件
-            if dist.get_rank() == 0:
-                with open("loss_dict.json", "w") as f:
-                    json.dump(loss_dict, f)
-        print(f"Epoch {epoch + 1}, Loss: {total_loss / len(dataloader)}")
+                if dist.get_rank() == 0:
+                    print(f"Epoch {epoch + 1} step {step}, Loss: {total_loss / len(dataloader)}")
+    # save loss to json
+    if dist.get_rank() == 0:
+        df = pd.DataFrame({"Loss": loss_list})
+        df.to_csv("loss_dict.csv", index=False)
+        # with open("loss_dict.json", "w") as f:
+        #     json.dump({i:loss_list[i] for i in range(len(loss_list))}, f)
 
 
 def test_hybrid_qwen_fwd(device: str = "cpu"):
@@ -206,7 +208,7 @@ def test_hybrid_qwen_fwd(device: str = "cpu"):
     # train
     #####
     model.eval()
-    loss_dict = {}
+    loss_list = []
     with torch.no_grad():
         for epoch in range(NUM_EPOCHS):
             if booster.plugin.pp_size > 1:
@@ -244,11 +246,15 @@ def test_hybrid_qwen_fwd(device: str = "cpu"):
                     # torch.save(tensor_pt, f"./tests/tensor_log/{device}_tensor_rank{dist.get_rank()}_step{step}.pt")
                     # print(f"step {step} rank {dist.get_rank()} : loss {loss}")
                     total_loss += loss.item()
-                # 将字典保存为 JSON 文件
-                if dist.get_rank() == 0:
-                    with open("loss_dict.json", "w") as f:
-                        json.dump(loss_dict, f)
-            print(f"Epoch {epoch + 1}, Loss: {total_loss / len(dataloader)}")
+                    if dist.get_rank() == 0:
+                        print(f"Epoch {epoch + 1} step {step}, Loss: {total_loss / len(dataloader)}")
+
+    # save loss to json
+    if dist.get_rank() == 0:
+        df = pd.DataFrame({"Loss": loss_list})
+        df.to_csv("loss_dict.csv", index=False)
+        # with open("loss_dict.json", "w") as f:
+        #     json.dump({i:loss_list[i] for i in range(len(loss_list))}, f)
 
 
 if __name__ == "__main__":
@@ -259,5 +265,5 @@ if __name__ == "__main__":
     else:
         device = "cpu"
     dtype = torch.bfloat16
-    test_hybrid_qwen(device)
-    # test_hybrid_qwen_fwd(device)
+    # test_hybrid_qwen(device)
+    test_hybrid_qwen_fwd(device)
