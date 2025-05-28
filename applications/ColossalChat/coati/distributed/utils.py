@@ -3,6 +3,7 @@ import os
 from typing import Any, Dict, List
 
 import torch
+from torch.utils.checkpoint import checkpoint
 from filelock import FileLock
 
 from colossalai.shardformer.layer.loss import dist_log_prob
@@ -93,7 +94,7 @@ def calc_action_log_probs(
     """
     # labels: torch.Tensor,  # [B, S] or [B, S, Vocab_size]
     # logits: torch.Tensor,  # [B, S, Vocab_size]
-    log_probs = dist_log_prob(sequences, logits, shard_config, vocab_size, logits.dtype)
+    log_probs = checkpoint(dist_log_prob, sequences, logits, shard_config, vocab_size, logits.dtype)
     log_probs = log_probs.squeeze(-1)
     return log_probs[:, -num_actions:]
 
