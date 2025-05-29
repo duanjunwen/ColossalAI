@@ -95,6 +95,7 @@ class Qwen2PipelineForwards:
             batch_size, seq_length = input_shape
             device = hidden_states.device
 
+        #print(f"######## debug 0 qwen2 pipe model, ls: {stage_manager.is_last_stage()}, fs: {stage_manager.is_first_stage()}, hidden_states: {hidden_states.shape}")
         seq_length_with_past = seq_length
         past_key_values_length = 0
 
@@ -169,6 +170,7 @@ class Qwen2PipelineForwards:
                     sliding_window=self.config.sliding_window,
                 )
 
+        #print(f"######## debug 1 qwen2 pipe model, fs: {stage_manager.is_first_stage()}, ls: {stage_manager.is_last_stage()}, hidden_states: {hidden_states.shape}")
         if stage_manager.is_first_stage():
             if shard_config.enable_sequence_parallelism:
                 if is_share_sp_tp(sp_mode):
@@ -184,6 +186,7 @@ class Qwen2PipelineForwards:
                         process_group=sp_group,
                         grad_scale=1 / sp_size,
                     )
+        #print(f"######## debug 2 qwen2 pipe model, ls: {stage_manager.is_last_stage()}, hidden_states: {hidden_states.shape}")
 
         # decoder layers
         all_hidden_states = () if output_hidden_states else None
@@ -192,6 +195,7 @@ class Qwen2PipelineForwards:
 
         start_idx, end_idx = stage_index[0], stage_index[1]
         num_ckpt_layers = 0
+        self.gradient_checkpointing = True
         if self.gradient_checkpointing and self.training:
             num_ckpt_layers = end_idx - start_idx
             # TODO: We can replace `gradient_checkpointing_enable` fn and initialize a gradient_checkpointing (List[bool]) for each layer
@@ -844,11 +848,15 @@ def get_qwen2_model_forward_for_flash_attn(shard_config: ShardConfig, sp_mode=No
                 hidden_states, 1, sp_group, 1 / sp_size, fp8_communication=shard_config.fp8_communication
             )
 
+        layer_idx = 0
         for decoder_layer in self.layers:
+            print(f"#########debug layer {layer_idx} mem current: {torch.npu.memory_allocated() / (1024**3):.2f} GB, max: {torch.npu.max_memory_allocated() / (1024**3):.2f} GB,")
+            layer_idx += 1
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
             if self.gradient_checkpointing and self.training:
+                print(f"#######debug self.gradient_checkpointing in")
                 layer_outputs = self._gradient_checkpointing_func(
                     decoder_layer.__call__,
                     hidden_states,
