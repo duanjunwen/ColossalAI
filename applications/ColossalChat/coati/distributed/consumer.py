@@ -60,6 +60,7 @@ class BaseConsumer:
         self.generate_config = generate_config
 
     def setup(self) -> None:
+        print(f"self.rank {self.rank} self.world_size {self.world_size} self.master_addr {self.master_addr} self.master_port {self.master_port}")
         launch(self.rank, self.world_size, self.master_addr, self.master_port, local_rank=0)
 
         plugin_config = dict(tp_size=1, pp_size=1, precision="bf16", zero_stage=2)

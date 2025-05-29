@@ -64,6 +64,7 @@ def launch_distributed(
         core_consumer = ALGO_MAP.get(core_algo, SimpleConsumer)
 
     train_dp_size = get_dp_size_fast(num_consumer_procs, plugin_config)
+    print(f"inference_batch_size {inference_batch_size} num_producers {num_producers} train_batch_size {train_batch_size} train_dp_size {train_dp_size}")
     assert (inference_batch_size * num_producers) % (train_batch_size * train_dp_size) == 0
 
     dataset_path = train_dataset_config["path"]
